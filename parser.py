@@ -13,7 +13,7 @@ SELECTORS = {
     # Question elements
     "question_prompt": ".prompt",
     "responses_container": ".responses-container",
-    "question_fieldset": ".multiple-choice-fieldset",
+    "question_fieldset": ".multiple-choice-fieldset, .true-false-fieldset",
     "choice_row": ".choice-row",
     "choice_radio": "input.form-check-input[type='radio']",
     "choice_checkbox": "input.form-check-input[type='checkbox']",
@@ -34,6 +34,16 @@ SELECTORS = {
 
     # Reading button
     "reading_button": "button.reading-button",
+
+    # Concept resource / recharge page (shown after too many wrong answers)
+    "concept_resource": "[class*='concept-resource'], [class*='recharge'], "
+                        "[class*='resource-select'], [class*='learning-resource']",
+    "resource_link": "a[class*='resource'], a[class*='concept'], "
+                     "button[class*='resource'], [class*='resource-card'] a, "
+                     "[class*='resource-list'] a",
+    "back_to_questions": "button[class*='back'], button[class*='return'], "
+                         "button[class*='continue'], button[class*='close'], "
+                         "a[class*='back'], a[class*='return']",
 
     # Page type indicators
     "complete_indicator": "[class*='score-summary'], [class*='assignment-complete'], "
@@ -62,8 +72,16 @@ def detect_page_type(driver):
     if _has_element(driver, SELECTORS["complete_indicator"]):
         return "complete"
 
-    # Check for question (responses container = question is showing)
+    # Check for concept resource / recharge page
+    if _has_element(driver, SELECTORS["concept_resource"]):
+        return "recharge"
+
+    # Check for question (responses container or fieldset = question is showing)
     if _has_element(driver, SELECTORS["responses_container"]):
+        return "question"
+
+    # Check for true/false or MC fieldset
+    if _has_element(driver, SELECTORS["question_fieldset"]):
         return "question"
 
     # Check for text inputs (fill-in-the-blank question)
@@ -179,14 +197,16 @@ def _extract_choices_from_rows(choice_rows, input_elements):
         except Exception:
             text = row.text.strip()
 
-        # The clickable element is the label or the choice div
-        try:
-            clickable = row.find_element(By.CSS_SELECTOR, "label.form-check-label")
-        except Exception:
+        # The clickable element — use the radio/checkbox input directly for Angular
+        clickable = input_elements[i] if i < len(input_elements) else None
+        if not clickable:
             try:
-                clickable = row.find_element(By.CSS_SELECTOR, SELECTORS["choice_clickable"])
+                clickable = row.find_element(By.CSS_SELECTOR, "input[type='radio'], input[type='checkbox']")
             except Exception:
-                clickable = input_elements[i] if i < len(input_elements) else row
+                try:
+                    clickable = row.find_element(By.CSS_SELECTOR, "label.form-check-label")
+                except Exception:
+                    clickable = row
 
         choices.append({
             "label": label,
@@ -278,6 +298,67 @@ def click_next_question(driver):
         logger.info("Clicked 'Next Question' button")
         return True
     logger.warning("Could not find 'Next Question' button")
+    return False
+
+
+def handle_recharge_page(driver):
+    """Handle the concept resource / recharge page.
+
+    When too many answers are wrong, SmartBook forces a reading detour.
+    Strategy: click the first resource link to open it, wait briefly,
+    then look for a back/continue/close button to return to questions.
+    """
+    import time
+
+    # Step 1: Click the first resource link to "open" the reading
+    resource_links = browser.find_elements_safe(driver, SELECTORS["resource_link"])
+    if resource_links:
+        human.random_delay(1.0, 2.0)
+        browser.safe_click(driver, resource_links[0])
+        logger.info("Clicked concept resource link")
+        human.random_delay(2.0, 4.0)
+    else:
+        # Try clicking any visible link or button on the page as fallback
+        fallback = browser.find_elements_safe(driver, "a, button")
+        for el in fallback:
+            try:
+                text = el.text.strip().lower()
+                if any(kw in text for kw in ["open", "read", "view", "start", "select"]):
+                    human.random_delay(1.0, 2.0)
+                    browser.safe_click(driver, el)
+                    logger.info(f"Clicked fallback resource button: {text}")
+                    human.random_delay(2.0, 4.0)
+                    break
+            except Exception:
+                continue
+
+    # Step 2: Try to close / go back to return to questions
+    # Give page time to load the resource
+    time.sleep(2)
+
+    # Look for back/return/continue/close buttons
+    back_btn = browser.wait_for_clickable(driver, SELECTORS["back_to_questions"], timeout=5)
+    if back_btn:
+        human.random_delay(0.5, 1.5)
+        browser.safe_click(driver, back_btn)
+        logger.info("Clicked back/continue button to return to questions")
+        return True
+
+    # Fallback: look for any button with relevant text
+    buttons = browser.find_elements_safe(driver, "button, a")
+    for btn in buttons:
+        try:
+            text = btn.text.strip().lower()
+            if any(kw in text for kw in ["back", "return", "continue", "close",
+                                          "done", "next", "finish"]):
+                human.random_delay(0.5, 1.5)
+                browser.safe_click(driver, btn)
+                logger.info(f"Clicked '{text}' to return to questions")
+                return True
+        except Exception:
+            continue
+
+    logger.warning("Could not find a way to exit the recharge page")
     return False
 
 

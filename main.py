@@ -102,6 +102,13 @@ def solve_loop():
                 gui.update_status(question_num, correct_num, question_num)
                 break
 
+            elif page_type == "recharge":
+                gui.log("Concept resource page detected — opening and closing reading...")
+                parser.handle_recharge_page(driver)
+                human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+                consecutive_unknown = 0
+                continue
+
             elif page_type == "reading":
                 gui.log("Reading screen detected, clicking Next...")
                 human.random_delay(1.0, 3.0)
@@ -194,6 +201,68 @@ def solve_loop():
     gui.root.after(0, gui._on_stop)
 
 
+def _click_choice(drv, element):
+    """Click a multiple choice / true-false option using JS to ensure Angular registers it."""
+    human.random_delay(0.2, 0.5)
+    drv.execute_script("""
+        var el = arguments[0];
+
+        // Find the radio/checkbox input — could be the element itself or inside it
+        var input = el;
+        if (el.tagName !== 'INPUT') {
+            input = el.querySelector('input[type="radio"], input[type="checkbox"]');
+        }
+
+        // Find the label associated with this input (Angular often binds click on label)
+        var label = null;
+        if (input && input.id) {
+            label = document.querySelector('label[for="' + input.id + '"]');
+        }
+        if (!label && input) {
+            label = input.closest('label');
+        }
+
+        // Find the parent .choice or .choice-row div where Angular may bind handlers
+        var choice = el.closest('.choice') || el.closest('.choice-row');
+
+        // The click target: prefer label, then choice container, then the input
+        var clickTarget = label || choice || input || el;
+
+        // Dispatch the full mouse event sequence that Zone.js intercepts
+        function fireMouseSequence(target) {
+            var rect = target.getBoundingClientRect();
+            var cx = rect.left + rect.width / 2;
+            var cy = rect.top + rect.height / 2;
+            var opts = {bubbles: true, cancelable: true, view: window,
+                        clientX: cx, clientY: cy, button: 0};
+
+            target.dispatchEvent(new PointerEvent('pointerdown', opts));
+            target.dispatchEvent(new MouseEvent('mousedown', opts));
+            target.dispatchEvent(new PointerEvent('pointerup', opts));
+            target.dispatchEvent(new MouseEvent('mouseup', opts));
+            target.dispatchEvent(new MouseEvent('click', opts));
+        }
+
+        // Fire on the click target (label or choice container)
+        fireMouseSequence(clickTarget);
+
+        // If the input still isn't checked, force it and fire change
+        if (input && !input.checked) {
+            input.checked = true;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Nudge Angular's change detection if available
+        try {
+            var ngZone = window.getAllAngularTestabilities && window.getAllAngularTestabilities();
+            if (ngZone && ngZone.length > 0) {
+                ngZone[0]._ngZone.run(function(){});
+            }
+        } catch(e) {}
+    """, element)
+
+
 def _execute_action(action, drv):
     """Execute an answer action on the page."""
     action_type = action["type"]
@@ -201,11 +270,11 @@ def _execute_action(action, drv):
     values = action.get("values", [])
 
     if action_type == "click" and targets:
-        browser.safe_click(drv, targets[0])
+        _click_choice(drv, targets[0])
 
     elif action_type == "multi_click":
         for target in targets:
-            browser.safe_click(drv, target)
+            _click_choice(drv, target)
             human.random_delay(0.3, 0.8)
 
     elif action_type == "type" and targets and values:

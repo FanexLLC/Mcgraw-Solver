@@ -14,7 +14,35 @@ def connect_to_browser():
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
     driver = webdriver.Chrome(options=options)
+
+    # Switch to the SmartBook tab if we're on the wrong one
+    switch_to_smartbook_tab(driver)
     return driver
+
+
+def switch_to_smartbook_tab(driver):
+    """Find and switch to the tab containing SmartBook content."""
+    import logging
+    logger = logging.getLogger(__name__)
+
+    handles = driver.window_handles
+    logger.info(f"Found {len(handles)} tab(s)")
+
+    for handle in handles:
+        driver.switch_to.window(handle)
+        try:
+            url = driver.current_url
+            title = driver.title
+            logger.info(f"Tab: {title} | {url}")
+            # Look for McGraw-Hill / SmartBook URLs
+            if any(kw in url.lower() for kw in ["mcgraw", "smartbook", "connect", "mheducation"]):
+                logger.info(f"Switched to SmartBook tab: {title}")
+                return
+        except Exception:
+            continue
+
+    # If no SmartBook tab found, stay on current tab
+    logger.warning("No SmartBook tab found — staying on current tab")
 
 
 def wait_for_element(driver, selector, by=By.CSS_SELECTOR, timeout=15):

@@ -81,18 +81,19 @@ def _build_prompt(q_type, question, context, choices, blank_count=1):
         if blank_count > 1:
             return (
                 f"This question has exactly {blank_count} blanks to fill in. "
-                f"Reply with ONLY the answers separated by semicolons. "
-                f"Do NOT use 'and' or any other words between answers. "
-                f"Format: answer1; answer2; answer3\n"
-                f"Each answer should be a single word or short phrase for one blank.\n\n"
+                f"Each blank expects exactly ONE word. "
+                f"Reply with ONLY the single words separated by semicolons. "
+                f"Format: word1; word2; word3\n"
+                f"IMPORTANT: Each answer MUST be exactly one word. Never use phrases.\n\n"
                 f"Question: {question}\n"
                 f"{context_section}\n"
                 f"Answer:"
             )
         else:
             return (
-                f"Answer this question with a short, precise answer. "
-                f"Reply with ONLY the answer text, nothing else.\n\n"
+                f"Fill in the blank with exactly ONE word. "
+                f"Reply with ONLY that single word, nothing else. "
+                f"IMPORTANT: Your answer MUST be exactly one word.\n\n"
                 f"Question: {question}\n"
                 f"{context_section}\n"
                 f"Answer:"

@@ -82,20 +82,22 @@ def human_click(element, driver):
     actions.click()
     actions.perform()
 
-    # Fire events for Angular — needed for radio buttons, checkboxes, etc.
+    # Fire change event for Angular — needed for radio buttons, checkboxes, etc.
     try:
         driver.execute_script("""
             var el = arguments[0];
-            // If we clicked a label, find the actual input inside it
             var input = el.querySelector('input[type="radio"], input[type="checkbox"]');
             if (!input && el.tagName === 'LABEL') {
                 input = el.querySelector('input');
             }
-            var target = input || el;
-            target.click();
-            target.checked = true;
-            target.dispatchEvent(new Event('input', { bubbles: true }));
-            target.dispatchEvent(new Event('change', { bubbles: true }));
+            if (!input && (el.tagName === 'INPUT')) {
+                input = el;
+            }
+            if (input && !input.checked) {
+                input.checked = true;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            }
         """, element)
     except Exception:
         pass
