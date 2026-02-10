@@ -40,10 +40,10 @@ def on_start(settings):
 
     apply_settings(settings)
 
-    # Initialize OpenAI client
+    # Connect to proxy server
     try:
-        solver.init_client(settings["api_key"])
-        gui.log("OpenAI client initialized.")
+        solver.init_client(settings["access_key"])
+        gui.log("Connected to server.")
     except Exception as e:
         gui.log(f"ERROR: {e}")
         gui.root.after(0, gui._on_stop)
@@ -51,7 +51,7 @@ def on_start(settings):
 
     # Connect to existing browser
     try:
-        gui.log("Connecting to Chrome (make sure you launched it with launch_chrome.bat)...")
+        gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
         driver = browser.connect_to_browser()
         gui.log("Connected to Chrome!")
         gui.log("Make sure you're on a SmartBook question page.")
@@ -151,12 +151,12 @@ def solve_loop():
                 try:
                     action = solver.get_answer(question_data)
                 except Exception as e:
-                    gui.log(f"  GPT error: {e}. Retrying...")
+                    gui.log(f"  Server error: {e}. Retrying...")
                     time.sleep(3)
                     try:
                         action = solver.get_answer(question_data)
                     except Exception as e2:
-                        gui.log(f"  GPT error again: {e2}. Skipping question.")
+                        gui.log(f"  Server error again: {e2}. Skipping question.")
                         parser.click_next_button(driver)
                         human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
                         continue
@@ -337,7 +337,7 @@ def on_stop():
 if __name__ == "__main__":
     gui = SolverGUI(on_start=on_start, on_pause=on_pause, on_stop=on_stop)
     gui.log("Welcome to SmartBook Solver!")
-    gui.log("1. Run launch_chrome.bat to open Chrome")
+    gui.log("1. Click 'Launch Chrome' to open Chrome")
     gui.log("2. Navigate to your SmartBook assignment")
-    gui.log("3. Enter your API key and click Start")
+    gui.log("3. Enter your access key and click Start")
     gui.run()

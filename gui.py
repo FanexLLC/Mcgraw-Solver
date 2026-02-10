@@ -3,6 +3,7 @@ from tkinter import ttk, scrolledtext
 import threading
 import os
 import config
+import browser
 
 
 class SolverGUI:
@@ -18,7 +19,7 @@ class SolverGUI:
 
         self.root = tk.Tk()
         self.root.title("SmartBook Solver")
-        self.root.geometry("520x600")
+        self.root.geometry("520x650")
         self.root.resizable(False, False)
         self.root.configure(bg="#1e1e2e")
 
@@ -39,18 +40,18 @@ class SolverGUI:
         settings_frame = tk.Frame(self.root, bg="#313244", bd=1, relief="solid")
         settings_frame.pack(fill="x", padx=20, pady=5)
 
-        # API Key
-        api_frame = tk.Frame(settings_frame, bg="#313244")
-        api_frame.pack(fill="x", padx=15, pady=(10, 5))
-        tk.Label(api_frame, text="API Key:", fg="#cdd6f4", bg="#313244",
+        # Access Key
+        key_frame = tk.Frame(settings_frame, bg="#313244")
+        key_frame.pack(fill="x", padx=15, pady=(10, 5))
+        tk.Label(key_frame, text="Access Key:", fg="#cdd6f4", bg="#313244",
                  font=("Segoe UI", 10)).pack(side="left")
-        self.api_key_var = tk.StringVar(value=config.OPENAI_API_KEY)
-        self.api_key_entry = tk.Entry(
-            api_frame, textvariable=self.api_key_var, show="*",
+        self.access_key_var = tk.StringVar(value=config.ACCESS_KEY)
+        self.access_key_entry = tk.Entry(
+            key_frame, textvariable=self.access_key_var, show="*",
             width=35, bg="#45475a", fg="#cdd6f4", insertbackground="#cdd6f4",
             relief="flat", font=("Segoe UI", 10)
         )
-        self.api_key_entry.pack(side="left", padx=(10, 0))
+        self.access_key_entry.pack(side="left", padx=(10, 0))
 
         # Speed
         speed_frame = tk.Frame(settings_frame, bg="#313244")
@@ -112,6 +113,13 @@ class SolverGUI:
         # Buttons frame
         btn_frame = tk.Frame(self.root, bg="#1e1e2e")
         btn_frame.pack(pady=10)
+
+        self.chrome_btn = tk.Button(
+            btn_frame, text="Launch Chrome", command=self._on_launch_chrome,
+            bg="#89b4fa", fg="#1e1e2e", font=("Segoe UI", 11, "bold"),
+            width=14, relief="flat", cursor="hand2"
+        )
+        self.chrome_btn.pack(side="left", padx=5)
 
         self.start_btn = tk.Button(
             btn_frame, text="Start", command=self._on_start,
@@ -187,7 +195,7 @@ class SolverGUI:
         speed = self.speed_var.get()
         min_d, max_d = config.SPEED_PRESETS.get(speed, (2.0, 5.0))
         return {
-            "api_key": self.api_key_var.get(),
+            "access_key": self.access_key_var.get(),
             "speed": speed,
             "min_delay": min_d,
             "max_delay": max_d,
@@ -196,19 +204,35 @@ class SolverGUI:
             "chrome_profile": self.profile_var.get(),
         }
 
-    def _save_api_key(self, key):
-        """Save API key to .env file."""
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
+    def _save_access_key(self, key):
+        """Save access key to .env file."""
+        env_path = os.path.join(config._get_app_dir(), ".env")
+        lines = []
+        # Preserve existing .env entries (like SERVER_URL)
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    if not line.startswith("ACCESS_KEY="):
+                        lines.append(line)
+        lines.append(f"ACCESS_KEY={key}\n")
         with open(env_path, "w") as f:
-            f.write(f"OPENAI_API_KEY={key}\n")
+            f.writelines(lines)
+
+    def _on_launch_chrome(self):
+        self.log("Launching Chrome with debug mode...")
+        try:
+            browser.launch_chrome()
+            self.log("Chrome launched! Navigate to your SmartBook assignment.")
+        except Exception as e:
+            self.log(f"ERROR launching Chrome: {e}")
 
     def _on_start(self):
         settings = self.get_settings()
-        if not settings["api_key"] or settings["api_key"] == "your-key-here":
-            self.log("ERROR: Please enter your OpenAI API key first!")
+        if not settings["access_key"]:
+            self.log("ERROR: Please enter your access key first!")
             return
 
-        self._save_api_key(settings["api_key"])
+        self._save_access_key(settings["access_key"])
         self.is_running = True
         self.is_paused = False
         self.question_count = 0

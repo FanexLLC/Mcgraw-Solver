@@ -1,26 +1,37 @@
 import random
 import logging
-from openai import OpenAI
+import requests
 import config
 import human
 
 logger = logging.getLogger(__name__)
 
-client = None
+_access_key = None
+_server_url = None
 
 
-def init_client(api_key=None):
-    """Initialize the OpenAI client."""
-    global client
-    key = api_key or config.OPENAI_API_KEY
-    if not key or key == "your-key-here":
-        raise ValueError("OpenAI API key not set. Please enter your API key.")
-    client = OpenAI(api_key=key)
+def init_client(access_key=None):
+    """Store the access key and server URL for proxy requests."""
+    global _access_key, _server_url
+    _access_key = access_key or config.ACCESS_KEY
+    _server_url = config.SERVER_URL
+
+    if not _access_key:
+        raise ValueError("Access key not set. Please enter your access key.")
+
+    # Verify the server is reachable
+    try:
+        resp = requests.get(f"{_server_url}/health", timeout=5)
+        resp.raise_for_status()
+    except requests.ConnectionError:
+        raise ConnectionError(f"Cannot reach server at {_server_url}. Is it running?")
+    except Exception as e:
+        raise ConnectionError(f"Server error: {e}")
 
 
 def get_answer(question_data):
-    """Send a question to GPT and get the answer back."""
-    if client is None:
+    """Send a question to the proxy server and get the answer back."""
+    if _access_key is None:
         init_client()
 
     q_type = question_data["type"]
@@ -31,17 +42,24 @@ def get_answer(question_data):
     blank_count = question_data.get("blank_count", 1)
     prompt = _build_prompt(q_type, question, context, choices, blank_count)
 
-    response = client.chat.completions.create(
-        model=config.GPT_MODEL,
-        temperature=config.GPT_TEMPERATURE,
-        messages=[
-            {"role": "system", "content": "You are a knowledgeable academic assistant. Answer precisely and concisely."},
-            {"role": "user", "content": prompt},
-        ],
-    )
+    # Send to proxy server
+    payload = {
+        "access_key": _access_key,
+        "prompt": prompt,
+        "model": config.GPT_MODEL,
+        "temperature": config.GPT_TEMPERATURE,
+    }
 
-    answer_text = response.choices[0].message.content.strip()
-    logger.info(f"GPT response: {answer_text}")
+    resp = requests.post(f"{_server_url}/api/solve", json=payload, timeout=30)
+
+    if resp.status_code == 403:
+        raise PermissionError("Invalid access key.")
+    elif resp.status_code != 200:
+        error_msg = resp.json().get("error", "Unknown server error")
+        raise RuntimeError(f"Server error: {error_msg}")
+
+    answer_text = resp.json()["answer"]
+    logger.info(f"Server response: {answer_text}")
 
     action = parse_gpt_response(answer_text, question_data)
     return action
@@ -100,7 +118,6 @@ def _build_prompt(q_type, question, context, choices, blank_count=1):
             )
 
     elif q_type == "dropdown":
-        # For dropdown, choices contains per-dropdown options
         dropdown_info = ""
         for i, c in enumerate(choices):
             opts = ", ".join(c.get("options", []))
@@ -130,14 +147,11 @@ def parse_gpt_response(response_text, question_data):
     choices = question_data.get("choices", [])
 
     if q_type == "mc_single":
-        # Extract the letter from the response
         letter = response_text.strip().upper()
-        # Handle responses like "A)" or "A." or just "A"
         letter = letter.replace(")", "").replace(".", "").replace(":", "").strip()
         if len(letter) > 1:
             letter = letter[0]
 
-        # Find the matching choice element
         target = None
         for c in choices:
             if c["label"].upper() == letter:
@@ -152,7 +166,6 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "mc_multi":
-        # Extract multiple letters
         letters = [l.strip().upper().replace(")", "").replace(".", "")
                    for l in response_text.split(",")]
 
@@ -177,29 +190,23 @@ def parse_gpt_response(response_text, question_data):
         inputs = question_data.get("input_elements", [])
 
         if blank_count > 1:
-            # Parse "answer1; answer2" format
             raw = response_text.strip()
-            # Remove any "and" connectors
             raw = raw.replace(" and ", "; ")
             values = [v.strip() for v in raw.split(";") if v.strip()]
 
-            # Fallback: try comma separation if semicolons didn't work
             if len(values) == 1 and len(inputs) > 1:
                 values = [v.strip() for v in raw.split(",") if v.strip()]
 
-            # Fallback: try newline separation
             if len(values) == 1 and len(inputs) > 1:
                 values = [v.strip() for v in raw.split("\n") if v.strip()]
 
-            # Strip numbering like "1:" or "1."
+            import re
             cleaned = []
             for v in values:
-                import re
                 v = re.sub(r'^\d+[\.:]\s*', '', v)
                 cleaned.append(v)
             values = cleaned
 
-            # Pad or trim to match input count
             while len(values) < len(inputs):
                 values.append("")
             values = values[:len(inputs)]
@@ -214,7 +221,6 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "dropdown":
-        # Parse "1: option\n2: option" format
         lines = response_text.strip().split("\n")
         values = []
         for line in lines:
@@ -247,7 +253,6 @@ def maybe_inject_error(action, question_data):
     choices = question_data.get("choices", [])
 
     if q_type == "mc_single" and len(choices) > 1:
-        # Pick a random wrong choice
         correct_letter = action.get("answer_text", "")
         wrong_choices = [c for c in choices if c["label"].upper() != correct_letter]
         if wrong_choices:
@@ -258,9 +263,7 @@ def maybe_inject_error(action, question_data):
             return action, True
 
     elif q_type == "mc_multi" and len(choices) > 1:
-        # Remove one correct answer or add a wrong one
         if random.random() < 0.5 and len(action["targets"]) > 1:
-            # Remove a random correct answer
             idx = random.randint(0, len(action["targets"]) - 1)
             action["targets"].pop(idx)
             logger.info("Intentional miss: removed one correct answer from multi-select")

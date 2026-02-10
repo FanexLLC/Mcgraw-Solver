@@ -1,3 +1,8 @@
+import logging
+import platform
+import subprocess
+import time
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -6,6 +11,42 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
 import config
 import human
+
+logger = logging.getLogger(__name__)
+
+
+def launch_chrome():
+    """Launch Chrome with remote debugging enabled. Works on Windows, macOS, and Linux."""
+    system = platform.system()
+
+    if system == "Darwin":
+        chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        kill_cmd = ["pkill", "-f", "Google Chrome"]
+        data_dir = "/tmp/chrome-debug"
+    elif system == "Windows":
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        kill_cmd = ["taskkill", "/F", "/IM", "chrome.exe"]
+        data_dir = r"C:\temp\chrome-debug"
+    else:
+        chrome_path = "google-chrome"
+        kill_cmd = ["pkill", "-f", "chrome"]
+        data_dir = "/tmp/chrome-debug"
+
+    # Kill existing Chrome
+    try:
+        subprocess.run(kill_cmd, capture_output=True, timeout=5)
+    except Exception:
+        pass
+
+    time.sleep(2)
+
+    # Launch Chrome with debug port
+    subprocess.Popen(
+        [chrome_path, f"--remote-debugging-port=9222", f"--user-data-dir={data_dir}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    logger.info("Chrome launched with debug port 9222")
 
 
 def connect_to_browser():

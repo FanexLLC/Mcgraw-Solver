@@ -1,4 +1,4 @@
 selenium
-undetected-chromedriver
-openai
 python-dotenv
+requests
+pyinstaller

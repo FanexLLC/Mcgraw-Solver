@@ -1,10 +1,25 @@
 import os
+import sys
+import platform
 from dotenv import load_dotenv
 
-load_dotenv()
 
-# OpenAI
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+def _get_app_dir():
+    """Get the directory where the app lives (works for both script and PyInstaller bundle)."""
+    if getattr(sys, "frozen", False):
+        # Running as PyInstaller bundle — use the directory containing the .exe/.app
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(__file__)
+
+
+# Load .env from the app directory
+load_dotenv(os.path.join(_get_app_dir(), ".env"))
+
+# Proxy server
+SERVER_URL = os.getenv("SERVER_URL", "https://mcgraw-solver-production.up.railway.app")
+ACCESS_KEY = os.getenv("ACCESS_KEY", "")
+
+# OpenAI model (sent to server so it knows which model to use)
 GPT_MODEL = "gpt-4o"
 GPT_TEMPERATURE = 0.0
 
@@ -21,9 +36,16 @@ CLICK_HOVER_MAX = 0.6
 # Accuracy - intentionally miss some questions to look human
 TARGET_ACCURACY = 0.90
 
-# Browser - Use your real Chrome profile so you stay logged in
-CHROME_USER_DATA_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Google", "Chrome", "User Data")
-CHROME_PROFILE = "Default"  # Change to "Profile 1", "Profile 2", etc. if needed
+# Browser - detect OS for correct Chrome path
+_system = platform.system()
+if _system == "Darwin":
+    CHROME_USER_DATA_DIR = os.path.expanduser("~/Library/Application Support/Google/Chrome")
+elif _system == "Windows":
+    CHROME_USER_DATA_DIR = os.path.join(os.path.expanduser("~"), "AppData", "Local", "Google", "Chrome", "User Data")
+else:
+    CHROME_USER_DATA_DIR = os.path.expanduser("~/.config/google-chrome")
+
+CHROME_PROFILE = "Default"
 WINDOW_WIDTH = 1920
 WINDOW_HEIGHT = 1080
 
