@@ -4,6 +4,13 @@ import platform
 from dotenv import load_dotenv
 
 
+# App version - bump this before each new release
+APP_VERSION = "1.0.0"
+
+# GitHub repo for update checks
+GITHUB_REPO = "FanexLLC/Mcgraw-Solver"
+
+
 def _get_app_dir():
     """Get the directory where the app lives (works for both script and PyInstaller bundle)."""
     if getattr(sys, "frozen", False):

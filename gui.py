@@ -1,9 +1,11 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext
 import threading
+import webbrowser
 import os
 import config
 import browser
+import updater
 
 
 class SolverGUI:
@@ -24,6 +26,39 @@ class SolverGUI:
         self.root.configure(bg="#1e1e2e")
 
         self._build_ui()
+        self._check_for_update()
+
+    def _check_for_update(self):
+        """Check for updates in a background thread, show banner if available."""
+        def _check():
+            result = updater.check_for_update()
+            if result:
+                version, url = result
+                self.root.after(0, self._show_update_banner, version, url)
+
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _show_update_banner(self, version, url):
+        """Show an update banner at the top of the window."""
+        banner = tk.Frame(self.root, bg="#f9e2af")
+        banner.pack(fill="x", padx=20, pady=(5, 0), before=self.root.winfo_children()[0])
+
+        tk.Label(
+            banner, text=f"Update available: v{version}",
+            fg="#1e1e2e", bg="#f9e2af", font=("Segoe UI", 10, "bold")
+        ).pack(side="left", padx=(10, 5), pady=5)
+
+        tk.Button(
+            banner, text="Download", command=lambda: webbrowser.open(url),
+            bg="#1e1e2e", fg="#f9e2af", font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", padx=8
+        ).pack(side="left", pady=5)
+
+        tk.Button(
+            banner, text="X", command=banner.destroy,
+            bg="#f9e2af", fg="#1e1e2e", font=("Segoe UI", 9, "bold"),
+            relief="flat", cursor="hand2", width=2
+        ).pack(side="right", pady=5, padx=5)
 
     def _build_ui(self):
         style = ttk.Style()
