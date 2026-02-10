@@ -19,7 +19,7 @@ def check_for_update():
             return None
 
         data = resp.json()
-        latest = data.get("tag_name", "").lstrip("v")
+        latest = data.get("tag_name", "").lstrip("vV")
         if not latest:
             return None
 
