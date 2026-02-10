@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Dashboard - SmartBook Solver</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <span class="logo">SmartBook Solver - Admin</span>
+    </div>
+  </nav>
+
+  <!-- Login -->
+  <div class="admin-login" id="admin-login-section">
+    <h1>Admin Dashboard</h1>
+    <form onsubmit="return adminLogin(event)">
+      <input type="password" id="admin-password" placeholder="Enter admin password" required>
+      <button type="submit" class="btn btn-primary" style="width:100%">Login</button>
+      <div class="form-message" id="admin-login-message"></div>
+    </form>
+  </div>
+
+  <!-- Dashboard -->
+  <div class="admin-dashboard container" id="admin-dashboard">
+    <!-- Pending Orders -->
+    <h2 class="section-title" style="text-align:left; font-size:1.5rem; margin-bottom:8px;">Pending Orders</h2>
+    <p style="color:var(--text-dim); margin-bottom:16px;">Verify Venmo payment before approving.</p>
+    <div style="overflow-x:auto;">
+      <table class="orders-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Venmo</th>
+            <th>Transaction ID</th>
+            <th>Plan</th>
+            <th>Date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="pending-orders-body">
+          <tr><td colspan="7" style="text-align:center;color:var(--text-dim)">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- History -->
+    <button class="section-toggle" id="history-toggle" onclick="toggleHistory()">Show Order History</button>
+    <div id="history-section" style="display:none; margin-top:24px;">
+      <h2 class="section-title" style="text-align:left; font-size:1.3rem; margin-bottom:16px;">Order History</h2>
+      <div style="overflow-x:auto;">
+        <table class="orders-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Plan</th>
+              <th>Status</th>
+              <th>Key</th>
+              <th>Date</th>
+              <th>Transaction ID</th>
+            </tr>
+          </thead>
+          <tbody id="history-orders-body">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="margin-top:48px; text-align:center;">
+      <button class="btn btn-secondary" onclick="loadOrders()">Refresh Orders</button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+  <script>
+    function toggleHistory() {
+      var section = document.getElementById("history-section");
+      var btn = document.getElementById("history-toggle");
+      if (section.style.display === "none") {
+        section.style.display = "block";
+        btn.textContent = "Hide Order History";
+      } else {
+        section.style.display = "none";
+        btn.textContent = "Show Order History";
+      }
+    }
+  </script>
+</body>
+</html>

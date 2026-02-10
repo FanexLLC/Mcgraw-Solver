@@ -53,6 +53,9 @@ def get_answer(question_data):
     resp = requests.post(f"{_server_url}/api/solve", json=payload, timeout=30)
 
     if resp.status_code == 403:
+        error_msg = resp.json().get("error", "")
+        if "expired" in error_msg.lower():
+            raise PermissionError("Access key expired. Please renew your subscription.")
         raise PermissionError("Invalid access key.")
     elif resp.status_code != 200:
         error_msg = resp.json().get("error", "Unknown server error")

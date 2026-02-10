@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartBook Solver - Automate Your McGraw-Hill Assignments</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Nav -->
+  <nav>
+    <div class="container">
+      <span class="logo">SmartBook Solver</span>
+      <ul>
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how-it-works">How It Works</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <h1>Ace Your SmartBook Assignments</h1>
+      <p>AI-powered automation for McGraw-Hill SmartBook. Answer questions accurately with human-like timing so you can focus on what matters.</p>
+      <a href="#pricing" class="btn btn-primary">Get Started</a>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section id="features">
+    <div class="container">
+      <h2 class="section-title">Why Students Love It</h2>
+      <p class="section-subtitle">Built to save you hours every week</p>
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">&#129302;</div>
+          <h3>AI-Powered Answers</h3>
+          <p>Uses GPT-4o to accurately answer multiple choice, fill-in-the-blank, true/false, and dropdown questions.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#128100;</div>
+          <h3>Human-Like Behavior</h3>
+          <p>Simulates natural reading time, random scrolling, and realistic typing so it looks like you're actually working.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#9881;</div>
+          <h3>Adjustable Speed</h3>
+          <p>Choose from Slow, Normal, or Fast presets. Control accuracy from 70% to 100% to match your style.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">&#128187;</div>
+          <h3>Simple Desktop App</h3>
+          <p>One-click Windows executable. No Python or technical setup required. Just download, enter your key, and go.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" style="background: var(--bg-surface);">
+    <div class="container">
+      <h2 class="section-title">How It Works</h2>
+      <p class="section-subtitle">Up and running in under 2 minutes</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <h3>Purchase a Plan</h3>
+          <p>Choose monthly or semester access and complete your payment via Venmo.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <h3>Get Your Key</h3>
+          <p>Receive your unique access key and download link via email within minutes.</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <h3>Start Solving</h3>
+          <p>Open the app, enter your key, navigate to your SmartBook assignment, and hit Start.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing">
+    <div class="container">
+      <h2 class="section-title">Simple Pricing</h2>
+      <p class="section-subtitle">No hidden fees. Cancel anytime.</p>
+      <div class="pricing-grid">
+        <div class="pricing-card">
+          <h3>Monthly</h3>
+          <div class="price">$20</div>
+          <div class="price-period">per month</div>
+          <ul class="pricing-features">
+            <li>Full access to SmartBook Solver</li>
+            <li>All question types supported</li>
+            <li>Speed &amp; accuracy controls</li>
+            <li>30 days of access</li>
+          </ul>
+          <button class="btn btn-secondary" onclick="openCheckout('monthly', '$20/month')">Buy Monthly</button>
+        </div>
+        <div class="pricing-card popular">
+          <div class="popular-badge">Best Value</div>
+          <h3>Semester</h3>
+          <div class="price">$50</div>
+          <div class="price-period">per semester (~4 months)</div>
+          <ul class="pricing-features">
+            <li>Everything in Monthly</li>
+            <li>Save $30 vs monthly</li>
+            <li>120 days of access</li>
+            <li>Priority support</li>
+          </ul>
+          <button class="btn btn-primary" onclick="openCheckout('semester', '$50/semester')">Buy Semester</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <p>&copy; 2026 SmartBook Solver. For educational use only.</p>
+    </div>
+  </footer>
+
+  <!-- Checkout Modal -->
+  <div class="modal-overlay" id="checkout-modal">
+    <div class="modal">
+      <button class="modal-close" onclick="closeCheckout()">&times;</button>
+      <h2>Complete Your Purchase</h2>
+      <p class="plan-summary" id="checkout-plan-label"></p>
+
+      <div class="venmo-instructions">
+        <p><strong>Step 1:</strong> Send payment via Venmo to <strong>@RobbieP10</strong></p>
+        <p style="margin-top:8px; color: var(--text-dim);">Include your email in the Venmo note so we can match your payment.</p>
+      </div>
+
+      <form id="checkout-form" onsubmit="return submitOrder(event)">
+        <input type="hidden" id="checkout-plan" name="plan">
+        <div class="form-group">
+          <label for="checkout-name">Full Name</label>
+          <input type="text" id="checkout-name" required placeholder="John Doe">
+        </div>
+        <div class="form-group">
+          <label for="checkout-email">Email Address</label>
+          <input type="email" id="checkout-email" required placeholder="you@college.edu">
+        </div>
+        <div class="form-group">
+          <label for="checkout-venmo">Your Venmo Username</label>
+          <input type="text" id="checkout-venmo" required placeholder="@your-venmo">
+        </div>
+        <div class="form-group">
+          <label for="checkout-txn">Venmo Transaction ID or Last 4 Digits</label>
+          <input type="text" id="checkout-txn" required placeholder="e.g. 3829471056 or 1056">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%" id="checkout-submit">Submit Order</button>
+        <div class="form-message" id="checkout-message"></div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
