@@ -69,8 +69,61 @@ SELECTORS = {
 }
 
 
+def _try_switch_to_question_frame(driver):
+    """Try to switch into an iframe that contains SmartBook question content.
+
+    Some versions of SmartBook/Connect wrap the question in one or more iframes.
+    Returns True if we switched into a frame, False if we stayed on the main page.
+    """
+    try:
+        iframes = driver.find_elements(By.TAG_NAME, "iframe")
+        if not iframes:
+            return False
+
+        for iframe in iframes:
+            try:
+                driver.switch_to.frame(iframe)
+                # Check if this frame has question-like content
+                if (_has_element(driver, SELECTORS["responses_container"]) or
+                    _has_element(driver, SELECTORS["question_fieldset"]) or
+                    _has_element(driver, "input[type='radio']") or
+                    _has_element(driver, "input[type='checkbox']") or
+                    _has_element(driver, SELECTORS["text_input"])):
+                    logger.info("Switched to iframe containing question content")
+                    return True
+
+                # Check for nested iframes
+                nested = driver.find_elements(By.TAG_NAME, "iframe")
+                for nested_frame in nested:
+                    try:
+                        driver.switch_to.frame(nested_frame)
+                        if (_has_element(driver, SELECTORS["responses_container"]) or
+                            _has_element(driver, "input[type='radio']")):
+                            logger.info("Switched to nested iframe containing question content")
+                            return True
+                        driver.switch_to.parent_frame()
+                    except Exception:
+                        driver.switch_to.parent_frame()
+
+                driver.switch_to.default_content()
+            except Exception:
+                driver.switch_to.default_content()
+
+    except Exception as e:
+        logger.debug(f"iframe check failed: {e}")
+        driver.switch_to.default_content()
+
+    return False
+
+
+# Track whether we've already switched into an iframe
+_in_iframe = False
+
+
 def detect_page_type(driver):
     """Detect what type of page is currently showing."""
+    global _in_iframe
+
     # Check if page is still loading
     if not browser.is_page_ready(driver):
         return "loading"
@@ -99,13 +152,63 @@ def detect_page_type(driver):
     if _has_element(driver, SELECTORS["text_input"]):
         return "question"
 
+    # Broadened detection: any radio/checkbox inputs on the page = question
+    if (_has_element(driver, "input[type='radio']") or
+            _has_element(driver, "input[type='checkbox']")):
+        return "question"
+
     # Check if nav bar is present but no question (reading screen)
     if _has_element(driver, SELECTORS["nav_bar"]):
         # Nav bar exists but no question content - likely a reading/review screen
         if _has_element(driver, SELECTORS["reading_button"]):
             return "reading"
 
+    # If nothing found, try switching into iframes
+    if not _in_iframe:
+        if _try_switch_to_question_frame(driver):
+            _in_iframe = True
+            return detect_page_type(driver)  # Retry detection inside the iframe
+    else:
+        # We were in an iframe but can't find content — go back to main page and retry
+        driver.switch_to.default_content()
+        _in_iframe = False
+
+    # Debug: log what IS on the page to help diagnose
+    _debug_page_elements(driver)
+
     return "unknown"
+
+
+def _debug_page_elements(driver):
+    """Log what elements exist on the page for debugging."""
+    try:
+        info = driver.execute_script("""
+            var info = {};
+            info.url = window.location.href;
+            info.iframes = document.querySelectorAll('iframe').length;
+            info.radios = document.querySelectorAll('input[type="radio"]').length;
+            info.checkboxes = document.querySelectorAll('input[type="checkbox"]').length;
+            info.textInputs = document.querySelectorAll('input[type="text"]').length;
+            info.buttons = document.querySelectorAll('button').length;
+            info.forms = document.querySelectorAll('form').length;
+            info.selects = document.querySelectorAll('select').length;
+
+            // Check for common SmartBook classes
+            info.responsesContainer = document.querySelectorAll('.responses-container').length;
+            info.choiceRow = document.querySelectorAll('.choice-row').length;
+            info.prompt = document.querySelectorAll('.prompt').length;
+            info.fieldset = document.querySelectorAll('fieldset').length;
+
+            // Get some class names from the body for inspection
+            var mainDiv = document.querySelector('body > div') || document.body;
+            info.bodyClasses = document.body.className;
+            info.title = document.title;
+
+            return JSON.stringify(info);
+        """)
+        logger.info(f"Page debug: {info}")
+    except Exception as e:
+        logger.debug(f"Debug script failed: {e}")
 
 
 def parse_question(driver):
@@ -161,11 +264,17 @@ def parse_question(driver):
 
     if checkboxes and len(checkboxes) > 0:
         result["type"] = "mc_multi"
-        result["choices"] = _extract_choices_from_rows(choice_rows, checkboxes)
+        if choice_rows:
+            result["choices"] = _extract_choices_from_rows(choice_rows, checkboxes)
+        else:
+            result["choices"] = _extract_choices_generic(driver, checkboxes, "checkbox")
 
     elif radios and len(radios) > 0:
         result["type"] = "mc_single"
-        result["choices"] = _extract_choices_from_rows(choice_rows, radios)
+        if choice_rows:
+            result["choices"] = _extract_choices_from_rows(choice_rows, radios)
+        else:
+            result["choices"] = _extract_choices_generic(driver, radios, "radio")
 
     elif text_inputs:
         result["type"] = "fill"
@@ -213,6 +322,47 @@ def _extract_question_text(driver):
         body_text = driver.execute_script(script)
         if body_text:
             return body_text.strip()
+
+        # Broader fallback: find question text near radio/checkbox inputs
+        # Works on Connect and alternative SmartBook layouts
+        script2 = """
+        var radios = document.querySelectorAll('input[type="radio"], input[type="checkbox"]');
+        if (radios.length === 0) return '';
+
+        // Walk up from the first radio to find the question container
+        var container = radios[0].closest('form') || radios[0].closest('[class*="question"]')
+                        || radios[0].closest('fieldset') || radios[0].parentElement.parentElement.parentElement;
+        if (!container) return '';
+
+        // Get text that appears before the first radio input
+        var texts = [];
+        var walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null, false);
+        var firstRadio = radios[0];
+        var node;
+        while (node = walker.nextNode()) {
+            // Stop when we reach the radio inputs section
+            if (firstRadio.contains(node) || firstRadio.parentElement.contains(node)) break;
+            var t = node.textContent.trim();
+            if (t && t.length > 5) texts.push(t);
+        }
+
+        // Also look for common question selectors
+        var selectors = ['.question-text', '.question-stem', 'legend', '.stem',
+                         '[class*="question-prompt"]', '[class*="stem"]',
+                         '.question_text', 'h3', 'h4'];
+        for (var i = 0; i < selectors.length; i++) {
+            var el = document.querySelector(selectors[i]);
+            if (el) {
+                var t = el.textContent.trim();
+                if (t && t.length > 10) return t;
+            }
+        }
+
+        return texts.join(' ');
+        """
+        fallback_text = driver.execute_script(script2)
+        if fallback_text:
+            return fallback_text.strip()
 
         return ""
 
@@ -340,6 +490,64 @@ def _extract_choices_from_rows(choice_rows, input_elements):
     return choices
 
 
+def _extract_choices_generic(driver, input_elements, input_type):
+    """Fallback: extract choices by finding labels associated with radio/checkbox inputs.
+
+    Used when .choice-row selectors don't match (different SmartBook/Connect version).
+    """
+    choices = []
+    labels = "ABCDEFGHIJ"
+
+    for i, inp in enumerate(input_elements):
+        label = labels[i] if i < len(labels) else str(i + 1)
+        text = ""
+
+        try:
+            # Try to find the associated <label> element
+            inp_id = inp.get_attribute("id")
+            if inp_id:
+                label_el = browser.find_elements_safe(driver, f"label[for='{inp_id}']")
+                if label_el:
+                    text = label_el[0].text.strip()
+
+            # Fallback: get text from parent element
+            if not text:
+                text = driver.execute_script("""
+                    var el = arguments[0];
+                    var parent = el.closest('label') || el.parentElement;
+                    if (!parent) return '';
+                    // Get text excluding hidden elements
+                    var clone = parent.cloneNode(true);
+                    var hidden = clone.querySelectorAll('[style*="display:none"], [style*="display: none"], ._visuallyHidden');
+                    hidden.forEach(function(h) { h.remove(); });
+                    return clone.textContent.trim();
+                """, inp)
+
+            # Fallback: check sibling elements
+            if not text:
+                text = driver.execute_script("""
+                    var el = arguments[0];
+                    var sibling = el.nextElementSibling;
+                    while (sibling) {
+                        var t = sibling.textContent.trim();
+                        if (t) return t;
+                        sibling = sibling.nextElementSibling;
+                    }
+                    return '';
+                """, inp)
+
+        except Exception as e:
+            logger.debug(f"Error extracting choice text: {e}")
+
+        choices.append({
+            "label": label,
+            "text": text,
+            "element": inp,
+        })
+
+    return choices
+
+
 def _extract_dropdown_options(dropdowns):
     """Extract options from dropdown select elements."""
     choices = []
@@ -445,12 +653,13 @@ def click_next_button(driver):
     if submit_with_confidence(driver):
         return True
 
-    # Fallback: look for any Next/Continue/Submit buttons
+    # Fallback: look for any Next/Continue/Submit/Check buttons
     buttons = browser.find_elements_safe(driver, "button")
     for btn in buttons:
         try:
             text = btn.text.strip().lower()
-            if text in ("next", "continue", "submit", "done", "ok"):
+            if text in ("next", "continue", "submit", "done", "ok", "check my work",
+                         "check answer", "check"):
                 human.random_delay(0.3, 1.0)
                 browser.safe_click(driver, btn)
                 logger.info(f"Clicked button: {text}")
@@ -470,6 +679,22 @@ def click_next_question(driver):
         browser.safe_click(driver, el)
         logger.info("Clicked 'Next Question' button")
         return True
+
+    # Fallback: look for "Next" link/button (Connect-style navigation)
+    buttons = browser.find_elements_safe(driver, "a, button")
+    for btn in buttons:
+        try:
+            text = btn.text.strip().lower()
+            if text in ("next", "next question", "next >", ">"):
+                # Make sure it's visible and enabled
+                if btn.is_displayed() and btn.is_enabled():
+                    human.random_delay(0.3, 1.0)
+                    browser.safe_click(driver, btn)
+                    logger.info(f"Clicked next navigation: '{btn.text.strip()}'")
+                    return True
+        except Exception:
+            continue
+
     logger.warning("Could not find 'Next Question' button")
     return False
 
