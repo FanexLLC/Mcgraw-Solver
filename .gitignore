@@ -4,4 +4,3 @@ dist/
 build/
 *.spec
 *.exe
-keys.json
