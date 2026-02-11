@@ -1,6 +1,26 @@
 // ---- Configuration ----
 const API_URL = "https://mcgraw-solver-production.up.railway.app";
 
+// ---- Mobile Nav Toggle ----
+(function () {
+  var toggle = document.getElementById("nav-toggle");
+  var links = document.getElementById("nav-links");
+  if (!toggle || !links) return;
+
+  toggle.addEventListener("click", function () {
+    toggle.classList.toggle("active");
+    links.classList.toggle("open");
+  });
+
+  // Close menu when a link is tapped
+  links.querySelectorAll("a").forEach(function (a) {
+    a.addEventListener("click", function () {
+      toggle.classList.remove("active");
+      links.classList.remove("open");
+    });
+  });
+})();
+
 // ---- Checkout Modal ----
 
 function openCheckout(plan, label) {
