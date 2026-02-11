@@ -1,0 +1,106 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build executable
+        run: pyinstaller --onefile --windowed --name "SmartBook Solver" main.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/SmartBook Solver.exe
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build executable
+        run: pyinstaller --onefile --windowed --name "SmartBook Solver" main.py
+
+      - name: Zip macOS app
+        run: cd dist && zip -r "SmartBook Solver macOS.zip" "SmartBook Solver.app" 2>/dev/null || zip -r "SmartBook Solver macOS.zip" "SmartBook Solver"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: dist/SmartBook Solver macOS.zip
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/windows
+
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: artifacts/macos
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          body: |
+            ## Download
+
+            | Platform | File |
+            |----------|------|
+            | Windows | `SmartBook Solver.exe` |
+            | macOS | `SmartBook Solver macOS.zip` |
+
+            ## Installation
+
+            ### Windows
+            1. Download `SmartBook Solver.exe`
+            2. Double-click to run
+
+            ### macOS
+            1. Download `SmartBook Solver macOS.zip`
+            2. Unzip it
+            3. **First time only** — open Terminal and run:
+               ```
+               xattr -cr ~/Downloads/SmartBook\ Solver.app
+               ```
+               (adjust the path if you unzipped somewhere else)
+            4. Double-click to run
+
+            ### Both platforms
+            - You need **Google Chrome** installed
+            - Enter your **Access Key** in the app settings
+          files: |
+            artifacts/windows/SmartBook Solver.exe
+            artifacts/macos/SmartBook Solver macOS.zip

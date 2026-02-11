@@ -7,6 +7,7 @@ import parser
 import solver
 import human
 from gui import SolverGUI
+from selenium.webdriver.common.by import By
 
 # Setup logging
 logging.basicConfig(
@@ -105,6 +106,9 @@ def solve_loop():
             elif page_type == "recharge":
                 gui.log("Concept resource page detected — opening and closing reading...")
                 parser.handle_recharge_page(driver)
+                human.random_delay(1.0, 2.0)
+                gui.log("Clicking Next Question...")
+                parser.click_next_question(driver)
                 human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
                 consecutive_unknown = 0
                 continue
@@ -181,6 +185,13 @@ def solve_loop():
 
                 # Submit answer via confidence button
                 parser.submit_with_confidence(driver)
+
+                # Check if resource review is required (after wrong answers)
+                human.random_delay(1.5, 2.5)
+                if parser.needs_resource_review(driver):
+                    gui.log("  Resource review required — reading concept...")
+                    parser.handle_recharge_page(driver)
+                    human.random_delay(1.0, 2.0)
 
                 # Click "Next Question" button if it appears
                 human.random_delay(1.0, 2.0)
@@ -432,66 +443,75 @@ def _execute_ordering(action, drv):
 
 
 def _execute_matching(action, drv):
-    """Execute a matching question by dragging source items to targets.
+    """Execute a matching question by dragging choice items to drop zones.
 
-    Uses HTML5 drag-and-drop events to simulate dragging each source
-    item to its matched target.
+    Uses Selenium ActionChains to simulate real mouse drag-and-drop,
+    which works with react-beautiful-dnd (synthetic DragEvents do not).
     """
-    matches = action.get("matches", [])
-    source_elements = action.get("source_elements", [])
-    target_elements = action.get("target_elements", [])
-    source_texts = action.get("sources", [])
-    target_texts = action.get("targets_list", [])
+    from selenium.webdriver.common.action_chains import ActionChains
 
-    if not matches or not source_elements or not target_elements:
-        logger.warning("Matching: no matches or elements")
+    matches = action.get("matches", [])
+    drop_zones = action.get("source_elements", [])   # drop zones indexed by label
+    labels = action.get("sources", [])                # label texts
+    choices = action.get("targets_list", [])           # choice texts
+
+    if not matches or not drop_zones:
+        logger.warning("Matching: no matches or drop zones")
         return
 
     for match in matches:
-        src_text = match["source"].lower().strip()
-        tgt_text = match["target"].lower().strip()
+        label_text = match["source"].lower().strip()
+        choice_text = match["target"].lower().strip()
 
-        # Find the source element
-        src_el = None
-        for i, st in enumerate(source_texts):
-            if src_text in st.lower() or st.lower() in src_text:
-                if i < len(source_elements):
-                    src_el = source_elements[i]
+        # Find the drop zone index by label
+        drop_idx = None
+        for i, label in enumerate(labels):
+            if label_text in label.lower() or label.lower() in label_text:
+                drop_idx = i
                 break
 
-        # Find the target element
-        tgt_el = None
-        for i, tt in enumerate(target_texts):
-            if tgt_text in tt.lower() or tt.lower() in tgt_text:
-                if i < len(target_elements):
-                    tgt_el = target_elements[i]
-                break
+        if drop_idx is None or drop_idx >= len(drop_zones):
+            logger.warning(f"Matching: couldn't find drop zone for '{match['source']}'")
+            continue
 
-        if src_el and tgt_el:
-            drv.execute_script("""
-                var src = arguments[0];
-                var tgt = arguments[1];
-                var dt = new DataTransfer();
+        # Re-query choice elements each time (DOM changes after each drag)
+        fresh_choices = browser.find_elements_safe(
+            drv, ".matching-component .choices-container .choice-item-wrapper")
 
-                function evt(type, el) {
-                    return new DragEvent(type, {
-                        bubbles: true, cancelable: true,
-                        dataTransfer: dt, view: window
-                    });
-                }
+        choice_el = None
+        for el in fresh_choices:
+            try:
+                text = el.find_element(By.CSS_SELECTOR, ".content p").text.strip().lower()
+                if choice_text in text or text in choice_text:
+                    choice_el = el
+                    break
+            except Exception:
+                continue
 
-                src.dispatchEvent(evt('pointerdown', src));
-                src.dispatchEvent(evt('dragstart', src));
-                tgt.dispatchEvent(evt('dragenter', tgt));
-                tgt.dispatchEvent(evt('dragover', tgt));
-                tgt.dispatchEvent(evt('drop', tgt));
-                src.dispatchEvent(evt('dragend', src));
-            """, src_el, tgt_el)
+        if not choice_el:
+            logger.warning(f"Matching: couldn't find choice element for '{match['target']}'")
+            continue
+
+        # Drag the choice to the drop zone using real browser events
+        try:
+            actions = ActionChains(drv)
+            actions.move_to_element(choice_el)
+            actions.pause(0.2)
+            actions.click_and_hold(choice_el)
+            actions.pause(0.4)
+            actions.move_by_offset(0, -10)   # small move to trigger drag detection
+            actions.pause(0.2)
+            actions.move_to_element(drop_zones[drop_idx])
+            actions.pause(0.3)
+            actions.release()
+            actions.perform()
+
             human.random_delay(0.5, 1.2)
-            logger.info(f"Matching: dragged '{match['source']}' -> '{match['target']}'")
-        else:
-            logger.warning(f"Matching: couldn't find elements for '{match['source']}' -> '{match['target']}'")
+            logger.info(f"Matching: dragged '{match['target']}' -> '{match['source']}'")
+        except Exception as e:
+            logger.warning(f"Matching: drag failed for '{match['source']}' -> '{match['target']}': {e}")
 
+    logger.info(f"Matching: completed {len(matches)} matches")
 
 def on_pause(is_paused):
     """Called when user clicks Pause/Resume."""

@@ -41,7 +41,7 @@ CLICK_HOVER_MIN = 0.2
 CLICK_HOVER_MAX = 0.6
 
 # Accuracy - intentionally miss some questions to look human
-TARGET_ACCURACY = 0.90
+TARGET_ACCURACY = 0.95
 
 # Browser - detect OS for correct Chrome path
 _system = platform.system()

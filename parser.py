@@ -33,8 +33,10 @@ SELECTORS = {
     # Matching (drag-to-match) questions
     "matching_component": ".matching-component, [class*='probe-type-matching'], "
                           "[class*='probe-type-categorize']",
-    "matching_source": ".source-item, .drag-item, .prompt-item",
-    "matching_target": ".target-item, .drop-zone, .category-item",
+    "matching_label": ".matching-component .match-row .match-prompt-label .content p",
+    "matching_drop_zone": ".matching-component .match-row .match-single-response-wrapper",
+    "matching_choice": ".matching-component .choices-container .choice-item-wrapper",
+    "matching_choice_text": ".content p",
 
     # Confidence buttons (these act as submit + next)
     "confidence_container": "awd-confidence-buttons, .confidence-buttons-container",
@@ -46,15 +48,13 @@ SELECTORS = {
     # Reading button
     "reading_button": "button.reading-button",
 
-    # Concept resource / recharge page (shown after too many wrong answers)
-    "concept_resource": "[class*='concept-resource'], [class*='recharge'], "
-                        "[class*='resource-select'], [class*='learning-resource']",
-    "resource_link": "a[class*='resource'], a[class*='concept'], "
-                     "button[class*='resource'], [class*='resource-card'] a, "
-                     "[class*='resource-list'] a",
-    "back_to_questions": "button[class*='back'], button[class*='return'], "
-                         "button[class*='continue'], button[class*='close'], "
-                         "a[class*='back'], a[class*='return']",
+    # Concept resource / recharge page (shown after wrong answers)
+    # NOTE: .lr__action-label appears on ALL pages ("Need help?"), so don't use it for detection.
+    # The recharge-specific element is the lr-tray button with "continue" text.
+    "recharge_tray_button": "button[data-automation-id='lr-tray_button'], "
+                            "button.lr-tray-expand-button",
+    "read_about_concept": ".lr__action-label",
+    "to_questions_button": "button[data-automation-id='reading-questions-button']",
 
     # Page type indicators
     "complete_indicator": "[class*='score-summary'], [class*='assignment-complete'], "
@@ -83,8 +83,8 @@ def detect_page_type(driver):
     if _has_element(driver, SELECTORS["complete_indicator"]):
         return "complete"
 
-    # Check for concept resource / recharge page
-    if _has_element(driver, SELECTORS["concept_resource"]):
+    # Check for concept resource / recharge page (mandatory "Select a concept resource to continue")
+    if _is_recharge_page(driver):
         return "recharge"
 
     # Check for question (responses container or fieldset = question is showing)
@@ -122,6 +122,9 @@ def parse_question(driver):
     # SmartBook puts question text in the content area before responses
     question_text = _extract_question_text(driver)
     result["question"] = question_text
+
+    # Extract any reading/textbook context from the page
+    result["context"] = extract_page_context(driver)
 
     # Check for ordering (sortable) question first
     sortable = browser.find_elements_safe(driver, SELECTORS["sortable_component"])
@@ -218,6 +221,89 @@ def _extract_question_text(driver):
         return ""
 
 
+def extract_page_context(driver):
+    """Extract any reading/textbook context visible on the page.
+
+    SmartBook often shows highlighted passages, reading panes, or concept
+    text alongside questions. This context helps GPT answer more accurately.
+    """
+    context_parts = []
+
+    try:
+        # 1. Check for highlighted/marked text on the page (SmartBook highlights relevant passages)
+        script = """
+        var texts = [];
+        // Highlighted/marked text
+        var marks = document.querySelectorAll('mark, .highlight, [class*="highlight"], .marked-text');
+        marks.forEach(function(el) {
+            var t = el.textContent.trim();
+            if (t && t.length > 10) texts.push(t);
+        });
+        // Reading pane content (if open)
+        var readingPane = document.querySelector('.reading-pane, .reader-content, [class*="reader"], [class*="reading-content"]');
+        if (readingPane) {
+            var pTags = readingPane.querySelectorAll('p');
+            pTags.forEach(function(p) {
+                var t = p.textContent.trim();
+                if (t && t.length > 20) texts.push(t);
+            });
+        }
+        return texts;
+        """
+        highlighted = driver.execute_script(script)
+        if highlighted:
+            context_parts.extend(highlighted)
+
+        # 2. Extract the DLC (Digital Learning Content) view container text
+        # This contains the question context area above the responses
+        script2 = """
+        var texts = [];
+        var viewContainer = document.querySelector('.view-container');
+        if (viewContainer) {
+            var dlcContent = viewContainer.querySelector('.dlc_question');
+            if (dlcContent) {
+                // Get all paragraph text that's NOT inside responses
+                var responses = dlcContent.querySelector('.responses-container');
+                var allP = dlcContent.querySelectorAll('p');
+                for (var i = 0; i < allP.length; i++) {
+                    var p = allP[i];
+                    if (responses && responses.contains(p)) continue;
+                    if (p.classList.contains('_visuallyHidden')) continue;
+                    if (p.closest('.responses-container')) continue;
+                    if (p.closest('.choices-container')) continue;
+                    var t = p.textContent.trim();
+                    if (t && t.length > 15) texts.push(t);
+                }
+            }
+        }
+        return texts;
+        """
+        dlc_text = driver.execute_script(script2)
+        if dlc_text:
+            context_parts.extend(dlc_text)
+
+    except Exception as e:
+        logger.warning(f"Error extracting page context: {e}")
+
+    # Deduplicate and limit length
+    seen = set()
+    unique_parts = []
+    for part in context_parts:
+        if part not in seen:
+            seen.add(part)
+            unique_parts.append(part)
+
+    context = "\n".join(unique_parts)
+    # Limit to ~2000 chars to avoid bloating the prompt
+    if len(context) > 2000:
+        context = context[:2000] + "..."
+
+    if context:
+        logger.info(f"Extracted {len(context)} chars of page context")
+
+    return context
+
+
 def _extract_choices_from_rows(choice_rows, input_elements):
     """Extract choice labels and text from choice rows."""
     choices = []
@@ -283,27 +369,37 @@ def _extract_sortable_items(driver):
 
 
 def _extract_matching_data(driver):
-    """Extract source items and target items from a matching question."""
-    sources = []
-    targets = []
-    source_elements = browser.find_elements_safe(driver, SELECTORS["matching_source"])
-    target_elements = browser.find_elements_safe(driver, SELECTORS["matching_target"])
+    """Extract matching question data: labels, drop zones, and draggable choices."""
+    labels = []
+    choices = []
 
-    for el in source_elements:
+    # Left-side labels (fixed prompts like "Initiator", "Influencer", etc.)
+    label_elements = browser.find_elements_safe(driver, SELECTORS["matching_label"])
+    for el in label_elements:
         text = el.text.strip()
         if text:
-            sources.append(text)
+            labels.append(text)
 
-    for el in target_elements:
-        text = el.text.strip()
-        if text:
-            targets.append(text)
+    # Drop zones (one per label, same order as labels)
+    drop_zone_elements = browser.find_elements_safe(driver, SELECTORS["matching_drop_zone"])
+
+    # Draggable choice items (descriptions to drag into drop zones)
+    choice_elements = browser.find_elements_safe(driver, SELECTORS["matching_choice"])
+    for el in choice_elements:
+        try:
+            text_el = el.find_element(By.CSS_SELECTOR, SELECTORS["matching_choice_text"])
+            choices.append(text_el.text.strip())
+        except Exception:
+            choices.append(el.text.strip())
+
+    logger.info(f"Matching: found {len(labels)} labels, {len(choices)} choices, "
+                f"{len(drop_zone_elements)} drop zones")
 
     return {
-        "sources": sources,
-        "targets": targets,
-        "source_elements": source_elements,
-        "target_elements": target_elements,
+        "sources": labels,                    # Left items (for GPT prompt)
+        "targets": choices,                   # Right items (for GPT prompt)
+        "source_elements": drop_zone_elements,  # Drop zones (indexed same as labels)
+        "target_elements": choice_elements,     # Draggable choices (indexed same as choices)
     }
 
 
@@ -378,64 +474,118 @@ def click_next_question(driver):
     return False
 
 
+def _is_recharge_page(driver):
+    """Check if the recharge tray button is present with 'continue' text.
+
+    The tray button on normal pages says 'Need help? Review these concept resources.'
+    The tray button on recharge pages says 'Select a concept resource to continue.'
+    """
+    tray_buttons = browser.find_elements_safe(driver, SELECTORS["recharge_tray_button"])
+    for btn in tray_buttons:
+        try:
+            text = btn.text.strip().lower()
+            if "continue" in text:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def needs_resource_review(driver):
+    """Check if the current page requires reviewing a concept resource before continuing.
+
+    This happens after wrong answers — SmartBook shows 'Select a concept resource to continue'
+    with a 'Read About the Concept' link.
+    """
+    return _is_recharge_page(driver)
+
+
 def handle_recharge_page(driver):
     """Handle the concept resource / recharge page.
 
-    When too many answers are wrong, SmartBook forces a reading detour.
-    Strategy: click the first resource link to open it, wait briefly,
-    then look for a back/continue/close button to return to questions.
+    When answers are wrong, SmartBook forces a reading detour:
+    1. Click 'Read About the Concept'
+    2. Reading page opens with textbook content
+    3. Scroll down to simulate reading
+    4. Click 'To Questions' to return
     """
     import time
 
-    # Step 1: Click the first resource link to "open" the reading
-    resource_links = browser.find_elements_safe(driver, SELECTORS["resource_link"])
-    if resource_links:
-        human.random_delay(1.0, 2.0)
-        browser.safe_click(driver, resource_links[0])
-        logger.info("Clicked concept resource link")
-        human.random_delay(2.0, 4.0)
-    else:
-        # Try clicking any visible link or button on the page as fallback
-        fallback = browser.find_elements_safe(driver, "a, button")
-        for el in fallback:
-            try:
-                text = el.text.strip().lower()
-                if any(kw in text for kw in ["open", "read", "view", "start", "select"]):
-                    human.random_delay(1.0, 2.0)
+    # Step 1: Click "Read About the Concept"
+    read_links = browser.find_elements_safe(driver, SELECTORS["read_about_concept"])
+    clicked = False
+    for el in read_links:
+        try:
+            if "read about" in el.text.strip().lower():
+                human.random_delay(1.0, 2.0)
+                # Click the parent element (the span is inside a clickable container)
+                try:
+                    parent = el.find_element(By.XPATH, "./..")
+                    browser.safe_click(driver, parent)
+                except Exception:
                     browser.safe_click(driver, el)
-                    logger.info(f"Clicked fallback resource button: {text}")
-                    human.random_delay(2.0, 4.0)
+                logger.info("Clicked 'Read About the Concept'")
+                clicked = True
+                break
+        except Exception:
+            continue
+
+    if not clicked:
+        # Fallback: look for any element with "read about" text
+        buttons = browser.find_elements_safe(driver, "a, button, span")
+        for btn in buttons:
+            try:
+                text = btn.text.strip().lower()
+                if "read about" in text:
+                    human.random_delay(1.0, 2.0)
+                    browser.safe_click(driver, btn)
+                    logger.info(f"Clicked fallback: '{btn.text.strip()}'")
+                    clicked = True
                     break
             except Exception:
                 continue
 
-    # Step 2: Try to close / go back to return to questions
-    # Give page time to load the resource
-    time.sleep(2)
+    if not clicked:
+        logger.warning("Could not find 'Read About the Concept' link")
+        return False
 
-    # Look for back/return/continue/close buttons
-    back_btn = browser.wait_for_clickable(driver, SELECTORS["back_to_questions"], timeout=5)
-    if back_btn:
-        human.random_delay(0.5, 1.5)
-        browser.safe_click(driver, back_btn)
-        logger.info("Clicked back/continue button to return to questions")
+    # Step 2: Wait for reading page to load
+    time.sleep(3)
+
+    # Step 3: Scroll down to simulate reading
+    try:
+        driver.execute_script("window.scrollBy(0, 400);")
+        human.random_delay(2.0, 4.0)
+        driver.execute_script("window.scrollBy(0, 400);")
+        human.random_delay(1.0, 3.0)
+    except Exception:
+        pass
+
+    # Step 4: Click "To Questions" button to return
+    to_questions = browser.wait_for_clickable(
+        driver, SELECTORS["to_questions_button"], timeout=10)
+    if to_questions:
+        human.random_delay(1.0, 2.0)
+        browser.safe_click(driver, to_questions)
+        logger.info("Clicked 'To Questions' to return")
+        time.sleep(2)
         return True
 
-    # Fallback: look for any button with relevant text
-    buttons = browser.find_elements_safe(driver, "button, a")
+    # Fallback: look for any button with "questions" text
+    buttons = browser.find_elements_safe(driver, "button")
     for btn in buttons:
         try:
             text = btn.text.strip().lower()
-            if any(kw in text for kw in ["back", "return", "continue", "close",
-                                          "done", "next", "finish"]):
-                human.random_delay(0.5, 1.5)
+            if "question" in text:
+                human.random_delay(1.0, 2.0)
                 browser.safe_click(driver, btn)
-                logger.info(f"Clicked '{text}' to return to questions")
+                logger.info(f"Clicked fallback: '{btn.text.strip()}'")
+                time.sleep(2)
                 return True
         except Exception:
             continue
 
-    logger.warning("Could not find a way to exit the recharge page")
+    logger.warning("Could not find 'To Questions' button")
     return False
 
 
