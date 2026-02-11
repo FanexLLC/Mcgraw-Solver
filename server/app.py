@@ -417,6 +417,12 @@ def generate_key_with_expiry(label, plan):
 
 def send_key_email(email, name, key, plan, expiry_date):
     """Send access key email via EmailJS."""
+    # Format expiry date as "June 11, 2026" instead of raw ISO
+    try:
+        parsed = datetime.fromisoformat(expiry_date.rstrip("Z"))
+        expiry_date = parsed.strftime("%B %d, %Y")
+    except (ValueError, AttributeError):
+        pass
     if not all([EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, EMAILJS_PUBLIC_KEY]):
         logger.warning("EmailJS not configured, skipping email")
         return False
@@ -437,7 +443,7 @@ def send_key_email(email, name, key, plan, expiry_date):
                     "download_url": DOWNLOAD_URL,
                 },
             },
-            timeout=10,
+            timeout=30,
         )
         if resp.status_code == 200:
             logger.info(f"Email sent to {email}")
