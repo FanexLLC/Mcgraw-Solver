@@ -284,10 +284,31 @@ nav ul a:hover {
   margin-bottom: 8px;
 }
 
+.price-original {
+  font-size: 1.3rem;
+  color: var(--text-dim);
+  text-decoration: line-through;
+  margin-top: 12px;
+}
+
+.discount-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent-red);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 4px 16px;
+  border-radius: 20px;
+  text-transform: uppercase;
+}
+
 .price {
   font-size: 3rem;
   font-weight: 800;
-  margin: 16px 0 4px;
+  margin: 4px 0 4px;
 }
 
 .price-period {
