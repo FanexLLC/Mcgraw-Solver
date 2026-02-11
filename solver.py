@@ -40,7 +40,11 @@ def get_answer(question_data):
     choices = question_data.get("choices", [])
 
     blank_count = question_data.get("blank_count", 1)
-    prompt = _build_prompt(q_type, question, context, choices, blank_count)
+    items = question_data.get("items", [])
+    sources = question_data.get("sources", [])
+    targets = question_data.get("targets", [])
+    prompt = _build_prompt(q_type, question, context, choices, blank_count,
+                           items=items, sources=sources, targets=targets)
 
     # Send to proxy server
     payload = {
@@ -68,11 +72,39 @@ def get_answer(question_data):
     return action
 
 
-def _build_prompt(q_type, question, context, choices, blank_count=1):
+def _build_prompt(q_type, question, context, choices, blank_count=1,
+                  items=None, sources=None, targets=None):
     """Build the GPT prompt based on question type."""
     context_section = f"\nContext: {context}\n" if context else ""
 
-    if q_type == "mc_single":
+    if q_type == "ordering":
+        items_text = "\n".join(f"- {item}" for item in (items or []))
+        return (
+            f"Put the following items in the correct order. "
+            f"Reply with ONLY the items listed in the correct order, one per line, "
+            f"numbered 1, 2, 3, etc. Use the EXACT text of each item.\n\n"
+            f"Question: {question}\n"
+            f"{context_section}\n"
+            f"Items (currently in this order):\n{items_text}\n\n"
+            f"Correct order:"
+        )
+
+    elif q_type == "matching":
+        sources_text = "\n".join(f"- {s}" for s in (sources or []))
+        targets_text = "\n".join(f"- {t}" for t in (targets or []))
+        return (
+            f"Match each item on the left with the correct item on the right. "
+            f"Reply with each match on its own line in the format:\n"
+            f"Left Item -> Right Item\n"
+            f"Use the EXACT text of each item.\n\n"
+            f"Question: {question}\n"
+            f"{context_section}\n"
+            f"Left items:\n{sources_text}\n\n"
+            f"Right items:\n{targets_text}\n\n"
+            f"Matches:"
+        )
+
+    elif q_type == "mc_single":
         choices_text = "\n".join(
             f"{c['label']}) {c['text']}" for c in choices
         )
@@ -149,7 +181,59 @@ def parse_gpt_response(response_text, question_data):
     q_type = question_data["type"]
     choices = question_data.get("choices", [])
 
-    if q_type == "mc_single":
+    if q_type == "ordering":
+        import re
+        lines = response_text.strip().split("\n")
+        ordered_items = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            # Remove numbering like "1. ", "1) ", "1: "
+            line = re.sub(r'^\d+[\.\)\:]\s*', '', line).strip()
+            # Remove leading "- "
+            line = re.sub(r'^-\s*', '', line).strip()
+            if line:
+                ordered_items.append(line)
+
+        return {
+            "type": "ordering",
+            "answer_text": " -> ".join(ordered_items),
+            "ordered_items": ordered_items,
+            "item_elements": question_data.get("item_elements", []),
+            "original_items": question_data.get("items", []),
+            "targets": [],
+            "values": [],
+        }
+
+    elif q_type == "matching":
+        lines = response_text.strip().split("\n")
+        matches = []
+        for line in lines:
+            line = line.strip()
+            if "->" in line:
+                parts = line.split("->", 1)
+                left = parts[0].strip().lstrip("- ")
+                right = parts[1].strip()
+                matches.append({"source": left, "target": right})
+            elif ":" in line and not line[0].isdigit():
+                parts = line.split(":", 1)
+                left = parts[0].strip().lstrip("- ")
+                right = parts[1].strip()
+                matches.append({"source": left, "target": right})
+
+        return {
+            "type": "matching",
+            "answer_text": ", ".join(f"{m['source']}->{m['target']}" for m in matches),
+            "matches": matches,
+            "source_elements": question_data.get("source_elements", []),
+            "target_elements": question_data.get("target_elements", []),
+            "sources": question_data.get("sources", []),
+            "targets_list": question_data.get("targets", []),
+            "values": [],
+        }
+
+    elif q_type == "mc_single":
         letter = response_text.strip().upper()
         letter = letter.replace(")", "").replace(".", "").replace(":", "").strip()
         if len(letter) > 1:

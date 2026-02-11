@@ -25,6 +25,17 @@ SELECTORS = {
     "dropdown_select": "select, select.form-select",
     "blank_indicator": "span._visuallyHidden",
 
+    # Ordering (sortable) questions — uses react-beautiful-dnd
+    "sortable_component": ".sortable-component, [class*='probe-type-sortable']",
+    "sortable_item": ".sortable-component .responses-container .choice-item[data-react-beautiful-dnd-draggable]",
+    "sortable_item_text": ".content p",
+
+    # Matching (drag-to-match) questions
+    "matching_component": ".matching-component, [class*='probe-type-matching'], "
+                          "[class*='probe-type-categorize']",
+    "matching_source": ".source-item, .drag-item, .prompt-item",
+    "matching_target": ".target-item, .drop-zone, .category-item",
+
     # Confidence buttons (these act as submit + next)
     "confidence_container": "awd-confidence-buttons, .confidence-buttons-container",
     "confidence_high": "button.btn-confidence:nth-child(1)",
@@ -111,6 +122,32 @@ def parse_question(driver):
     # SmartBook puts question text in the content area before responses
     question_text = _extract_question_text(driver)
     result["question"] = question_text
+
+    # Check for ordering (sortable) question first
+    sortable = browser.find_elements_safe(driver, SELECTORS["sortable_component"])
+    if sortable:
+        result["type"] = "ordering"
+        result["items"] = _extract_sortable_items(driver)
+        result["item_elements"] = browser.find_elements_safe(
+            driver, SELECTORS["sortable_item"])
+        logger.info(f"Parsed question: type=ordering, "
+                    f"question='{result['question'][:60]}...', "
+                    f"items={len(result['items'])}")
+        return result
+
+    # Check for matching question
+    matching = browser.find_elements_safe(driver, SELECTORS["matching_component"])
+    if matching:
+        result["type"] = "matching"
+        match_data = _extract_matching_data(driver)
+        result["sources"] = match_data["sources"]
+        result["targets"] = match_data["targets"]
+        result["source_elements"] = match_data["source_elements"]
+        result["target_elements"] = match_data["target_elements"]
+        logger.info(f"Parsed question: type=matching, "
+                    f"question='{result['question'][:60]}...', "
+                    f"sources={len(result['sources'])}, targets={len(result['targets'])}")
+        return result
 
     # Detect question type and extract choices
     choice_rows = browser.find_elements_safe(driver, SELECTORS["choice_row"])
@@ -228,6 +265,46 @@ def _extract_dropdown_options(dropdowns):
         except Exception:
             choices.append({"options": [], "element": dropdown})
     return choices
+
+
+def _extract_sortable_items(driver):
+    """Extract item texts from a sortable/ordering question."""
+    items = []
+    elements = browser.find_elements_safe(driver, SELECTORS["sortable_item"])
+    for el in elements:
+        try:
+            text_el = el.find_element(By.CSS_SELECTOR, SELECTORS["sortable_item_text"])
+            text = text_el.text.strip()
+        except Exception:
+            text = el.text.strip()
+        if text:
+            items.append(text)
+    return items
+
+
+def _extract_matching_data(driver):
+    """Extract source items and target items from a matching question."""
+    sources = []
+    targets = []
+    source_elements = browser.find_elements_safe(driver, SELECTORS["matching_source"])
+    target_elements = browser.find_elements_safe(driver, SELECTORS["matching_target"])
+
+    for el in source_elements:
+        text = el.text.strip()
+        if text:
+            sources.append(text)
+
+    for el in target_elements:
+        text = el.text.strip()
+        if text:
+            targets.append(text)
+
+    return {
+        "sources": sources,
+        "targets": targets,
+        "source_elements": source_elements,
+        "target_elements": target_elements,
+    }
 
 
 def submit_with_confidence(driver):
