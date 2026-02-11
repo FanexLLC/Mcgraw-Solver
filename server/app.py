@@ -34,6 +34,7 @@ CORS(app, origins=[
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DOWNLOAD_URL = os.environ.get("DOWNLOAD_URL", "")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # EmailJS config
 EMAILJS_SERVICE_ID = os.environ.get("EMAILJS_SERVICE_ID", "")
@@ -43,37 +44,357 @@ EMAILJS_PRIVATE_KEY = os.environ.get("EMAILJS_PRIVATE_KEY", "")
 
 client = None
 
-# File paths
+# File paths (fallback for local dev without DATABASE_URL)
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "keys.json")
 ORDERS_FILE = os.path.join(os.path.dirname(__file__), "orders.json")
 
 PLAN_DURATIONS = {"monthly": 30, "semester": 120}
 
-# --------------- Helpers ---------------
+# --------------- Database ---------------
+
+_use_db = bool(DATABASE_URL)
 
 
-def load_keys():
+def get_db():
+    """Get a PostgreSQL connection."""
+    import psycopg2
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = True
+    return conn
+
+
+def init_db():
+    """Create tables if they don't exist, seed from keys.json."""
+    if not _use_db:
+        logger.info("No DATABASE_URL set, using JSON files")
+        return
+
+    import psycopg2
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS keys (
+            key TEXT PRIMARY KEY,
+            label TEXT,
+            plan TEXT,
+            created TIMESTAMP,
+            expires TIMESTAMP,
+            total_requests INTEGER DEFAULT 0,
+            last_used TIMESTAMP
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY,
+            name TEXT,
+            email TEXT,
+            venmo_username TEXT,
+            transaction_id TEXT,
+            plan TEXT,
+            status TEXT DEFAULT 'pending',
+            created TIMESTAMP,
+            approved_at TIMESTAMP,
+            key TEXT
+        )
+    """)
+
+    # Seed from keys.json if DB is empty
+    cur.execute("SELECT COUNT(*) FROM keys")
+    count = cur.fetchone()[0]
+    if count == 0 and os.path.exists(KEYS_FILE):
+        try:
+            with open(KEYS_FILE) as f:
+                data = json.load(f)
+            for k in data.get("keys", []):
+                created = None
+                expires = None
+                if k.get("created"):
+                    created = datetime.fromisoformat(k["created"].rstrip("Z"))
+                if k.get("expires"):
+                    expires = datetime.fromisoformat(k["expires"].rstrip("Z"))
+                cur.execute(
+                    "INSERT INTO keys (key, label, plan, created, expires, total_requests) "
+                    "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (key) DO NOTHING",
+                    (k["key"], k.get("label"), k.get("plan"), created, expires,
+                     k.get("total_requests", 0))
+                )
+            logger.info(f"Seeded {len(data.get('keys', []))} keys from keys.json")
+        except Exception as e:
+            logger.error(f"Failed to seed keys: {e}")
+
+    # Seed from orders.json if DB is empty
+    cur.execute("SELECT COUNT(*) FROM orders")
+    count = cur.fetchone()[0]
+    if count == 0 and os.path.exists(ORDERS_FILE):
+        try:
+            with open(ORDERS_FILE) as f:
+                data = json.load(f)
+            for o in data.get("orders", []):
+                created = None
+                approved_at = None
+                if o.get("created"):
+                    created = datetime.fromisoformat(o["created"].rstrip("Z"))
+                if o.get("approved_at"):
+                    approved_at = datetime.fromisoformat(o["approved_at"].rstrip("Z"))
+                cur.execute(
+                    "INSERT INTO orders (id, name, email, venmo_username, transaction_id, "
+                    "plan, status, created, approved_at, key) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+                    (o["id"], o.get("name"), o.get("email"), o.get("venmo_username"),
+                     o.get("transaction_id"), o.get("plan"), o.get("status", "pending"),
+                     created, approved_at, o.get("key"))
+                )
+            logger.info(f"Seeded {len(data.get('orders', []))} orders from orders.json")
+        except Exception as e:
+            logger.error(f"Failed to seed orders: {e}")
+
+    cur.close()
+    conn.close()
+    logger.info("Database initialized")
+
+
+# --------------- JSON Fallback Helpers (local dev) ---------------
+
+
+def _load_keys_json():
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE) as f:
             return json.load(f)
     return {"keys": []}
 
 
-def save_keys(data):
+def _save_keys_json(data):
     with open(KEYS_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
 
-def load_orders():
+def _load_orders_json():
     if os.path.exists(ORDERS_FILE):
         with open(ORDERS_FILE) as f:
             return json.load(f)
     return {"orders": []}
 
 
-def save_orders(data):
+def _save_orders_json(data):
     with open(ORDERS_FILE, "w") as f:
         json.dump(data, f, indent=2)
+
+
+# --------------- Key Operations ---------------
+
+
+def db_find_key(access_key):
+    """Find a key entry. Returns dict or None."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT key, label, plan, created, expires, total_requests, last_used "
+                     "FROM keys WHERE key = %s", (access_key,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "key": row[0], "label": row[1], "plan": row[2],
+            "created": row[3].isoformat() + "Z" if row[3] else None,
+            "expires": row[4].isoformat() + "Z" if row[4] else None,
+            "total_requests": row[5] or 0, "last_used": row[6],
+        }
+    else:
+        keys_data = _load_keys_json()
+        return next((k for k in keys_data.get("keys", []) if k["key"] == access_key), None)
+
+
+def db_update_key_usage(access_key):
+    """Increment total_requests and update last_used."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE keys SET total_requests = total_requests + 1, last_used = %s WHERE key = %s",
+            (datetime.utcnow(), access_key))
+        cur.close()
+        conn.close()
+    else:
+        keys_data = _load_keys_json()
+        for k in keys_data.get("keys", []):
+            if k["key"] == access_key:
+                k["total_requests"] = k.get("total_requests", 0) + 1
+                k["last_used"] = datetime.utcnow().isoformat() + "Z"
+                break
+        _save_keys_json(keys_data)
+
+
+def db_create_key(key, label, plan, created, expires):
+    """Insert a new key."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO keys (key, label, plan, created, expires) VALUES (%s, %s, %s, %s, %s)",
+            (key, label, plan, created, expires))
+        cur.close()
+        conn.close()
+    else:
+        keys_data = _load_keys_json()
+        keys_data["keys"].append({
+            "key": key, "label": label, "plan": plan,
+            "created": created.isoformat() + "Z",
+            "expires": expires.isoformat() + "Z",
+        })
+        _save_keys_json(keys_data)
+
+
+def db_list_keys():
+    """List all keys with usage stats."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT key, label, plan, expires, total_requests, last_used FROM keys")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [{
+            "key": r[0][:8] + "...", "label": r[1] or "", "plan": r[2] or "none",
+            "expires": r[3].isoformat() + "Z" if r[3] else None,
+            "total_requests": r[4] or 0,
+            "last_used": r[5].isoformat() + "Z" if r[5] else None,
+        } for r in rows]
+    else:
+        keys_data = _load_keys_json()
+        return [{
+            "key": k["key"][:8] + "...", "label": k.get("label", ""),
+            "plan": k.get("plan", "none"), "expires": k.get("expires"),
+            "total_requests": k.get("total_requests", 0),
+            "last_used": k.get("last_used"),
+        } for k in keys_data.get("keys", [])]
+
+
+def db_revoke_key(key_prefix):
+    """Delete keys matching prefix. Returns number deleted."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM keys WHERE key LIKE %s", (key_prefix + "%",))
+        deleted = cur.rowcount
+        cur.close()
+        conn.close()
+        return deleted
+    else:
+        keys_data = _load_keys_json()
+        original = len(keys_data["keys"])
+        keys_data["keys"] = [k for k in keys_data["keys"]
+                              if not k["key"].startswith(key_prefix)]
+        _save_keys_json(keys_data)
+        return original - len(keys_data["keys"])
+
+
+# --------------- Order Operations ---------------
+
+
+def db_create_order(order):
+    """Insert a new order."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO orders (id, name, email, venmo_username, transaction_id, plan, status, created) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (order["id"], order["name"], order["email"], order["venmo_username"],
+             order["transaction_id"], order["plan"], order["status"],
+             datetime.fromisoformat(order["created"].rstrip("Z"))))
+        cur.close()
+        conn.close()
+    else:
+        orders_data = _load_orders_json()
+        orders_data["orders"].append(order)
+        _save_orders_json(orders_data)
+
+
+def db_list_orders(status_filter=None):
+    """List orders, optionally filtered by status."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        if status_filter:
+            cur.execute(
+                "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
+                "created, approved_at, key FROM orders WHERE status = %s ORDER BY created DESC",
+                (status_filter,))
+        else:
+            cur.execute(
+                "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
+                "created, approved_at, key FROM orders ORDER BY created DESC")
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [{
+            "id": r[0], "name": r[1], "email": r[2], "venmo_username": r[3],
+            "transaction_id": r[4], "plan": r[5], "status": r[6],
+            "created": r[7].isoformat() + "Z" if r[7] else None,
+            "approved_at": r[8].isoformat() + "Z" if r[8] else None,
+            "key": r[9],
+        } for r in rows]
+    else:
+        orders_data = _load_orders_json()
+        orders = orders_data.get("orders", [])
+        if status_filter:
+            orders = [o for o in orders if o["status"] == status_filter]
+        return orders
+
+
+def db_find_order(order_id):
+    """Find an order by ID."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
+            "created, approved_at, key FROM orders WHERE id = %s", (order_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "id": row[0], "name": row[1], "email": row[2], "venmo_username": row[3],
+            "transaction_id": row[4], "plan": row[5], "status": row[6],
+            "created": row[7].isoformat() + "Z" if row[7] else None,
+            "approved_at": row[8].isoformat() + "Z" if row[8] else None,
+            "key": row[9],
+        }
+    else:
+        orders_data = _load_orders_json()
+        return next((o for o in orders_data["orders"] if o["id"] == order_id), None)
+
+
+def db_update_order(order_id, status, key=None, approved_at=None):
+    """Update an order's status."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE orders SET status = %s, key = %s, approved_at = %s WHERE id = %s",
+            (status, key, approved_at, order_id))
+        cur.close()
+        conn.close()
+    else:
+        orders_data = _load_orders_json()
+        for o in orders_data["orders"]:
+            if o["id"] == order_id:
+                o["status"] = status
+                if key:
+                    o["key"] = key
+                if approved_at:
+                    o["approved_at"] = approved_at.isoformat() + "Z"
+                break
+        _save_orders_json(orders_data)
+
+
+# --------------- Other Helpers ---------------
 
 
 def get_client():
@@ -89,17 +410,9 @@ def generate_key_with_expiry(label, plan):
     """Generate a new access key with expiration based on plan."""
     key = secrets.token_hex(16)
     now = datetime.utcnow()
-    entry = {
-        "key": key,
-        "label": label,
-        "plan": plan,
-        "created": now.isoformat() + "Z",
-        "expires": (now + timedelta(days=PLAN_DURATIONS[plan])).isoformat() + "Z",
-    }
-    keys_data = load_keys()
-    keys_data["keys"].append(entry)
-    save_keys(keys_data)
-    return key, entry
+    expires = now + timedelta(days=PLAN_DURATIONS[plan])
+    db_create_key(key, label, plan, now, expires)
+    return key, {"key": key, "expires": expires.isoformat() + "Z"}
 
 
 def send_key_email(email, name, key, plan, expiry_date):
@@ -147,7 +460,7 @@ def require_admin(f):
     return decorated
 
 
-# --------------- Existing Endpoints ---------------
+# --------------- Endpoints ---------------
 
 
 @app.route("/api/solve", methods=["POST"])
@@ -158,15 +471,17 @@ def solve():
 
     # Validate access key
     access_key = data.get("access_key", "")
-    keys_data = load_keys()
-
-    key_entry = next((k for k in keys_data.get("keys", []) if k["key"] == access_key), None)
+    key_entry = db_find_key(access_key)
     if not key_entry:
         return jsonify({"error": "Invalid access key"}), 403
 
     # Check expiration
-    if "expires" in key_entry:
-        expiry = datetime.fromisoformat(key_entry["expires"].rstrip("Z"))
+    if key_entry.get("expires"):
+        expiry_str = key_entry["expires"]
+        if isinstance(expiry_str, str):
+            expiry = datetime.fromisoformat(expiry_str.rstrip("Z"))
+        else:
+            expiry = expiry_str
         if datetime.utcnow() > expiry:
             return jsonify({"error": "Access key expired. Please renew your subscription."}), 403
 
@@ -179,10 +494,8 @@ def solve():
         return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
     _rate_tracker[access_key].append(now)
 
-    # Track usage on the key entry
-    key_entry["total_requests"] = key_entry.get("total_requests", 0) + 1
-    key_entry["last_used"] = datetime.utcnow().isoformat() + "Z"
-    save_keys(keys_data)
+    # Track usage
+    db_update_key_usage(access_key)
 
     # Extract question data
     prompt = data.get("prompt", "")
@@ -214,7 +527,7 @@ def solve():
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "db": "postgres" if _use_db else "json"})
 
 
 # --------------- Order Endpoints ---------------
@@ -232,7 +545,6 @@ def create_order():
     transaction_id = (data.get("transaction_id") or "").strip()
     plan = (data.get("plan") or "").strip()
 
-    # Validate required fields
     if not all([name, email, venmo_username, transaction_id, plan]):
         return jsonify({"error": "All fields are required"}), 400
 
@@ -255,9 +567,7 @@ def create_order():
         "key": None,
     }
 
-    orders_data = load_orders()
-    orders_data["orders"].append(order)
-    save_orders(orders_data)
+    db_create_order(order)
 
     logger.info(f"New order: {order['id']} | {name} | {plan}")
     return jsonify({"success": True, "message": "Order received! You'll get an email once payment is verified."})
@@ -269,11 +579,8 @@ def create_order():
 @app.route("/api/admin/orders", methods=["GET"])
 @require_admin
 def list_orders():
-    orders_data = load_orders()
     status_filter = request.args.get("status")
-    orders = orders_data.get("orders", [])
-    if status_filter:
-        orders = [o for o in orders if o["status"] == status_filter]
+    orders = db_list_orders(status_filter)
     return jsonify({"orders": orders})
 
 
@@ -285,8 +592,7 @@ def approve_order():
         return jsonify({"error": "order_id required"}), 400
 
     order_id = data["order_id"]
-    orders_data = load_orders()
-    order = next((o for o in orders_data["orders"] if o["id"] == order_id), None)
+    order = db_find_order(order_id)
 
     if not order:
         return jsonify({"error": "Order not found"}), 404
@@ -297,10 +603,7 @@ def approve_order():
     key, key_entry = generate_key_with_expiry(order["name"], order["plan"])
 
     # Update order
-    order["status"] = "approved"
-    order["approved_at"] = datetime.utcnow().isoformat() + "Z"
-    order["key"] = key
-    save_orders(orders_data)
+    db_update_order(order_id, "approved", key=key, approved_at=datetime.utcnow())
 
     # Send email
     email_sent = send_key_email(
@@ -328,16 +631,14 @@ def reject_order():
         return jsonify({"error": "order_id required"}), 400
 
     order_id = data["order_id"]
-    orders_data = load_orders()
-    order = next((o for o in orders_data["orders"] if o["id"] == order_id), None)
+    order = db_find_order(order_id)
 
     if not order:
         return jsonify({"error": "Order not found"}), 404
     if order["status"] != "pending":
         return jsonify({"error": f"Order already {order['status']}"}), 400
 
-    order["status"] = "rejected"
-    save_orders(orders_data)
+    db_update_order(order_id, "rejected")
 
     logger.info(f"Rejected order {order_id}")
     return jsonify({"success": True})
@@ -347,18 +648,7 @@ def reject_order():
 @require_admin
 def list_keys():
     """List all keys with usage stats."""
-    keys_data = load_keys()
-    summary = []
-    for k in keys_data.get("keys", []):
-        summary.append({
-            "key": k["key"][:8] + "...",
-            "label": k.get("label", ""),
-            "plan": k.get("plan", "none"),
-            "expires": k.get("expires"),
-            "total_requests": k.get("total_requests", 0),
-            "last_used": k.get("last_used"),
-        })
-    return jsonify({"keys": summary})
+    return jsonify({"keys": db_list_keys()})
 
 
 @app.route("/api/admin/revoke", methods=["POST"])
@@ -370,17 +660,17 @@ def revoke_key():
     if not key_prefix:
         return jsonify({"error": "key_prefix required (first 8 chars)"}), 400
 
-    keys_data = load_keys()
-    original_count = len(keys_data["keys"])
-    keys_data["keys"] = [k for k in keys_data["keys"] if not k["key"].startswith(key_prefix)]
-
-    if len(keys_data["keys"]) == original_count:
+    deleted = db_revoke_key(key_prefix)
+    if deleted == 0:
         return jsonify({"error": "No matching key found"}), 404
 
-    save_keys(keys_data)
-    logger.info(f"Revoked key starting with {key_prefix}")
+    logger.info(f"Revoked {deleted} key(s) starting with {key_prefix}")
     return jsonify({"success": True})
 
+
+# --------------- Startup ---------------
+
+init_db()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
