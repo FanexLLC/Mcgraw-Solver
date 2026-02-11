@@ -3,6 +3,8 @@ import json
 import logging
 import secrets
 import re
+import time
+from collections import defaultdict
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, request, jsonify
@@ -13,6 +15,13 @@ import requests as http_requests
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Rate limiting: max requests per key per hour
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "120"))
+RATE_WINDOW = 3600  # 1 hour in seconds
+
+# In-memory rate limit tracker: {key: [timestamp, timestamp, ...]}
+_rate_tracker = defaultdict(list)
 
 # CORS — allow GitHub Pages and localhost for development
 CORS(app, origins=[
@@ -160,6 +169,20 @@ def solve():
         expiry = datetime.fromisoformat(key_entry["expires"].rstrip("Z"))
         if datetime.utcnow() > expiry:
             return jsonify({"error": "Access key expired. Please renew your subscription."}), 403
+
+    # Rate limiting
+    now = time.time()
+    window_start = now - RATE_WINDOW
+    _rate_tracker[access_key] = [t for t in _rate_tracker[access_key] if t > window_start]
+    if len(_rate_tracker[access_key]) >= RATE_LIMIT:
+        logger.warning(f"Rate limit hit for key={access_key[:8]}...")
+        return jsonify({"error": "Rate limit exceeded. Try again later."}), 429
+    _rate_tracker[access_key].append(now)
+
+    # Track usage on the key entry
+    key_entry["total_requests"] = key_entry.get("total_requests", 0) + 1
+    key_entry["last_used"] = datetime.utcnow().isoformat() + "Z"
+    save_keys(keys_data)
 
     # Extract question data
     prompt = data.get("prompt", "")
@@ -317,6 +340,45 @@ def reject_order():
     save_orders(orders_data)
 
     logger.info(f"Rejected order {order_id}")
+    return jsonify({"success": True})
+
+
+@app.route("/api/admin/keys", methods=["GET"])
+@require_admin
+def list_keys():
+    """List all keys with usage stats."""
+    keys_data = load_keys()
+    summary = []
+    for k in keys_data.get("keys", []):
+        summary.append({
+            "key": k["key"][:8] + "...",
+            "label": k.get("label", ""),
+            "plan": k.get("plan", "none"),
+            "expires": k.get("expires"),
+            "total_requests": k.get("total_requests", 0),
+            "last_used": k.get("last_used"),
+        })
+    return jsonify({"keys": summary})
+
+
+@app.route("/api/admin/revoke", methods=["POST"])
+@require_admin
+def revoke_key():
+    """Revoke (delete) an access key."""
+    data = request.get_json()
+    key_prefix = data.get("key_prefix", "") if data else ""
+    if not key_prefix:
+        return jsonify({"error": "key_prefix required (first 8 chars)"}), 400
+
+    keys_data = load_keys()
+    original_count = len(keys_data["keys"])
+    keys_data["keys"] = [k for k in keys_data["keys"] if not k["key"].startswith(key_prefix)]
+
+    if len(keys_data["keys"]) == original_count:
+        return jsonify({"error": "No matching key found"}), 404
+
+    save_keys(keys_data)
+    logger.info(f"Revoked key starting with {key_prefix}")
     return jsonify({"success": True})
 
 

@@ -21,8 +21,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Find Selenium Manager path
+        id: sm
+        shell: bash
+        run: |
+          SM_PATH=$(python -c "import pathlib, selenium; p=pathlib.Path(selenium.__file__).parent / 'webdriver' / 'common' / 'windows' / 'selenium-manager.exe'; print(p)")
+          echo "path=$SM_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Build executable
-        run: pyinstaller --onefile --windowed --name "SmartBook Solver" main.py
+        shell: bash
+        run: |
+          pyinstaller --onefile --windowed \
+            --name "SmartBook Solver" \
+            --add-binary "${{ steps.sm.outputs.path }};selenium/webdriver/common/windows/" \
+            main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -42,8 +54,18 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Find Selenium Manager path
+        id: sm
+        run: |
+          SM_PATH=$(python -c "import pathlib, selenium; p=pathlib.Path(selenium.__file__).parent / 'webdriver' / 'common' / 'macos' / 'selenium-manager'; print(p)")
+          echo "path=$SM_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Build executable
-        run: pyinstaller --onefile --windowed --name "SmartBook Solver" main.py
+        run: |
+          pyinstaller --onefile --windowed \
+            --name "SmartBook Solver" \
+            --add-binary "${{ steps.sm.outputs.path }}:selenium/webdriver/common/macos/" \
+            main.py
 
       - name: Zip macOS app
         run: cd dist && zip -r "SmartBook Solver macOS.zip" "SmartBook Solver.app" 2>/dev/null || zip -r "SmartBook Solver macOS.zip" "SmartBook Solver"
