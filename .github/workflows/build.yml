@@ -91,12 +91,9 @@ jobs:
             ### macOS
             1. Download `SmartBook Solver macOS.zip`
             2. Unzip it
-            3. **First time only** — open Terminal and run:
-               ```
-               xattr -cr ~/Downloads/SmartBook\ Solver.app
-               ```
-               (adjust the path if you unzipped somewhere else)
-            4. Double-click to run
+            3. **First time only:** Right-click the app → click **Open** → click **Open** again in the popup
+               - If you don't see "Open", go to **System Settings → Privacy & Security** and click **Open Anyway**
+            4. After that, it opens normally with a double-click
 
             ### Both platforms
             - You need **Google Chrome** installed
