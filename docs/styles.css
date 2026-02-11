@@ -577,39 +577,186 @@ footer {
 /* ---- Responsive ---- */
 
 @media (max-width: 768px) {
-  .hero h1 {
-    font-size: 2rem;
+  section {
+    padding: 48px 0;
   }
 
-  .hero p {
-    font-size: 1rem;
+  .container {
+    padding: 0 16px;
   }
 
-  .pricing-grid {
-    grid-template-columns: 1fr;
-    max-width: 360px;
+  /* Nav */
+  nav {
+    padding: 12px 0;
   }
 
-  .steps {
-    flex-direction: column;
-    align-items: center;
+  nav .container {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .logo {
+    font-size: 1.1rem;
   }
 
   nav ul {
+    gap: 12px;
+  }
+
+  nav ul a {
+    font-size: 0.85rem;
+  }
+
+  /* Hero */
+  .hero {
+    padding-top: 100px;
+    padding-bottom: 48px;
+  }
+
+  .hero h1 {
+    font-size: 1.8rem;
+    line-height: 1.2;
+  }
+
+  .hero p {
+    font-size: 0.95rem;
+    margin-bottom: 24px;
+  }
+
+  .btn {
+    padding: 12px 28px;
+    font-size: 0.95rem;
+  }
+
+  /* Section titles */
+  .section-title {
+    font-size: 1.5rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.9rem;
+    margin-bottom: 32px;
+  }
+
+  /* Features */
+  .features-grid {
+    grid-template-columns: 1fr;
     gap: 16px;
+    margin-top: 32px;
+  }
+
+  .feature-card {
+    padding: 24px 20px;
+  }
+
+  .feature-icon {
+    font-size: 2rem;
+  }
+
+  /* How It Works */
+  .steps {
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    margin-top: 32px;
+  }
+
+  .step {
+    max-width: 100%;
+  }
+
+  .step-number {
+    width: 40px;
+    height: 40px;
+    font-size: 1.1rem;
+  }
+
+  /* Pricing */
+  .pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 360px;
+    gap: 24px;
+    margin-top: 32px;
+  }
+
+  .pricing-card {
+    padding: 32px 24px;
+  }
+
+  .price {
+    font-size: 2.5rem;
+  }
+
+  .price-original {
+    font-size: 1.1rem;
+  }
+
+  /* Checkout Modal */
+  .modal-overlay {
+    padding: 16px;
+    align-items: flex-start;
+    padding-top: 60px;
   }
 
   .modal {
-    margin: 16px;
-    padding: 24px;
+    margin: 0;
+    padding: 24px 20px;
+    max-height: calc(100vh - 80px);
   }
 
+  .modal h2 {
+    font-size: 1.2rem;
+    padding-right: 24px;
+  }
+
+  .form-group input {
+    padding: 10px 14px;
+    font-size: 0.95rem;
+  }
+
+  .venmo-instructions {
+    padding: 12px;
+    font-size: 0.85rem;
+  }
+
+  /* Admin */
   .orders-table {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .orders-table th,
   .orders-table td {
-    padding: 8px;
+    padding: 8px 6px;
+    white-space: nowrap;
+  }
+
+  .btn-sm {
+    padding: 5px 10px;
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .hero h1 {
+    font-size: 1.5rem;
+  }
+
+  nav ul {
+    gap: 8px;
+  }
+
+  nav ul a {
+    font-size: 0.8rem;
+  }
+
+  .pricing-grid {
+    max-width: 100%;
+  }
+
+  .price {
+    font-size: 2.2rem;
   }
 }
