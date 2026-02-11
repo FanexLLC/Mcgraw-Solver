@@ -11,6 +11,13 @@
     {
       "key": "de13e1eb51dff2677a6aed666becf695",
       "label": "Robbie-Master"
+    },
+    {
+      "key": "bf3bb84f3bb3d4352aa9ca153132755a",
+      "label": "Mac-Test",
+      "plan": "semester",
+      "created": "2026-02-11T00:00:00Z",
+      "expires": "2026-06-11T00:00:00Z"
     }
   ]
 }
