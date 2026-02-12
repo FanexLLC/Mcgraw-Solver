@@ -39,8 +39,10 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 # EmailJS config
 EMAILJS_SERVICE_ID = os.environ.get("EMAILJS_SERVICE_ID", "")
 EMAILJS_TEMPLATE_ID = os.environ.get("EMAILJS_TEMPLATE_ID", "")
+EMAILJS_ADMIN_TEMPLATE_ID = os.environ.get("EMAILJS_ADMIN_TEMPLATE_ID", "")
 EMAILJS_PUBLIC_KEY = os.environ.get("EMAILJS_PUBLIC_KEY", "")
 EMAILJS_PRIVATE_KEY = os.environ.get("EMAILJS_PRIVATE_KEY", "")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 
 client = None
 
@@ -455,6 +457,42 @@ def send_key_email(email, name, key, plan, expiry_date):
         return False
 
 
+def send_admin_order_notification(order):
+    """Send admin an email when a new order is placed."""
+    if not all([EMAILJS_SERVICE_ID, EMAILJS_ADMIN_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, ADMIN_EMAIL]):
+        logger.warning("Admin notification not configured, skipping")
+        return False
+    plan_display = "Monthly ($20)" if order["plan"] == "monthly" else "Semester ($50)"
+    try:
+        resp = http_requests.post(
+            "https://api.emailjs.com/api/v1.0/email/send",
+            json={
+                "service_id": EMAILJS_SERVICE_ID,
+                "template_id": EMAILJS_ADMIN_TEMPLATE_ID,
+                "user_id": EMAILJS_PUBLIC_KEY,
+                "accessToken": EMAILJS_PRIVATE_KEY,
+                "template_params": {
+                    "to_email": ADMIN_EMAIL,
+                    "customer_name": order["name"],
+                    "customer_email": order["email"],
+                    "venmo_username": order["venmo_username"],
+                    "transaction_id": order["transaction_id"],
+                    "plan": plan_display,
+                    "order_id": order["id"],
+                },
+            },
+            timeout=30,
+        )
+        if resp.status_code == 200:
+            logger.info(f"Admin notification sent for order {order['id']}")
+            return True
+        logger.error(f"Admin notification EmailJS error: {resp.status_code} {resp.text}")
+        return False
+    except Exception as e:
+        logger.error(f"Admin notification failed: {e}")
+        return False
+
+
 def require_admin(f):
     """Decorator to require admin password in X-Admin-Password header."""
     @wraps(f)
@@ -600,6 +638,9 @@ def create_order():
     }
 
     db_create_order(order)
+
+    # Notify admin about the new order
+    send_admin_order_notification(order)
 
     logger.info(f"New order: {order['id']} | {name} | {plan}")
     return jsonify({"success": True, "message": "Order received! You'll get an email once payment is verified."})
