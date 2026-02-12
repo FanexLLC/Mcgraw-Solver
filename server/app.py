@@ -531,6 +531,32 @@ def solve():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/validate", methods=["POST"])
+def validate_key():
+    data = request.get_json()
+    if not data:
+        return jsonify({"valid": False, "error": "No JSON body"}), 400
+
+    access_key = data.get("access_key", "")
+    key_entry = db_find_key(access_key)
+
+    if not key_entry:
+        return jsonify({"valid": False, "error": "Invalid access key"}), 403
+
+    # Check expiration
+    if key_entry.get("expires"):
+        expiry_str = key_entry["expires"]
+        if isinstance(expiry_str, str):
+            expiry = datetime.fromisoformat(expiry_str.rstrip("Z"))
+        else:
+            expiry = expiry_str
+        if datetime.utcnow() > expiry:
+            return jsonify({"valid": False, "error": "Access key expired. Please renew your subscription."}), 403
+
+    logger.info(f"Key validated: {access_key[:8]}...")
+    return jsonify({"valid": True})
+
+
 @app.route("/health", methods=["GET"])
 def health():
     return jsonify({"status": "ok", "db": "postgres" if _use_db else "json"})
