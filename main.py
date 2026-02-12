@@ -30,7 +30,6 @@ def apply_settings(settings):
     config.MAX_DELAY = settings["max_delay"]
     config.TARGET_ACCURACY = settings["accuracy"]
     config.GPT_MODEL = settings["model"]
-    config.CHROME_PROFILE = settings.get("chrome_profile", "Default")
 
 
 def on_start(settings):

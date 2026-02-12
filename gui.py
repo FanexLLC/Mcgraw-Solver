@@ -119,29 +119,25 @@ class SolverGUI:
         tk.Label(acc_frame, text="%", fg="#cdd6f4", bg="#313244",
                  font=("Segoe UI", 10)).pack(side="left")
 
-        # Chrome Profile
-        profile_frame = tk.Frame(settings_frame, bg="#313244")
-        profile_frame.pack(fill="x", padx=15, pady=5)
-        tk.Label(profile_frame, text="Chrome Profile:", fg="#cdd6f4", bg="#313244",
-                 font=("Segoe UI", 10)).pack(side="left")
-        self.profile_var = tk.StringVar(value=config.CHROME_PROFILE)
-        profile_combo = ttk.Combobox(
-            profile_frame, textvariable=self.profile_var,
-            values=["Default", "Profile 1", "Profile 2", "Profile 3"],
-            state="readonly", width=15
-        )
-        profile_combo.pack(side="left", padx=(10, 0))
-
         # Model
+        self._model_map = {
+            "Claude Sonnet 4.5 (Best)": "claude-sonnet-4-5-20250929",
+            "Claude Haiku 4.5 (Fast)": "claude-haiku-4-5-20251001",
+            "GPT-4o": "gpt-4o",
+            "GPT-4o Mini": "gpt-4o-mini",
+        }
+        self._model_map_reverse = {v: k for k, v in self._model_map.items()}
+        default_display = self._model_map_reverse.get(config.GPT_MODEL, "Claude Sonnet 4.5 (Best)")
+
         model_frame = tk.Frame(settings_frame, bg="#313244")
         model_frame.pack(fill="x", padx=15, pady=(5, 10))
         tk.Label(model_frame, text="Model:", fg="#cdd6f4", bg="#313244",
                  font=("Segoe UI", 10)).pack(side="left")
-        self.model_var = tk.StringVar(value=config.GPT_MODEL)
+        self.model_var = tk.StringVar(value=default_display)
         model_combo = ttk.Combobox(
             model_frame, textvariable=self.model_var,
-            values=["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"],
-            state="readonly", width=15
+            values=list(self._model_map.keys()),
+            state="readonly", width=24
         )
         model_combo.pack(side="left", padx=(10, 0))
 
@@ -229,14 +225,15 @@ class SolverGUI:
         """Return current settings from the GUI."""
         speed = self.speed_var.get()
         min_d, max_d = config.SPEED_PRESETS.get(speed, (2.0, 5.0))
+        display_name = self.model_var.get()
+        model_id = self._model_map.get(display_name, "gpt-4o")
         return {
             "access_key": self.access_key_var.get(),
             "speed": speed,
             "min_delay": min_d,
             "max_delay": max_d,
             "accuracy": self.accuracy_var.get() / 100.0,
-            "model": self.model_var.get(),
-            "chrome_profile": self.profile_var.get(),
+            "model": model_id,
         }
 
     def _save_access_key(self, key):

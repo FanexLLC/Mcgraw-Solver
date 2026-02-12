@@ -74,18 +74,32 @@ def get_answer(question_data):
 
 def _build_prompt(q_type, question, context, choices, blank_count=1,
                   items=None, sources=None, targets=None):
-    """Build the GPT prompt based on question type."""
-    context_section = f"\nContext: {context}\n" if context else ""
+    """Build the prompt based on question type.
 
+    Key design decisions:
+    - Context always comes BEFORE the question (read-then-answer improves accuracy).
+    - Fill-in-the-blank no longer forces single-word answers.
+    - A brief reasoning step is requested then a final ANSWER: line for easy parsing.
+    """
+    # --- context block (always first) ---
+    if context:
+        context_block = (
+            f"The following passage is from the textbook. Use it as your PRIMARY "
+            f"source when answering:\n\n{context}\n\n"
+        )
+    else:
+        context_block = ""
+
+    # --- per-type prompt ---
     if q_type == "ordering":
         items_text = "\n".join(f"- {item}" for item in (items or []))
         return (
-            f"Put the following items in the correct order. "
-            f"Reply with ONLY the items listed in the correct order, one per line, "
-            f"numbered 1, 2, 3, etc. Use the EXACT text of each item.\n\n"
-            f"Question: {question}\n"
-            f"{context_section}\n"
+            f"{context_block}"
+            f"Put the following items in the correct order.\n\n"
+            f"Question: {question}\n\n"
             f"Items (currently in this order):\n{items_text}\n\n"
+            f"Reply with ONLY the items in the correct order, one per line, "
+            f"numbered 1, 2, 3, etc. Use the EXACT text of each item.\n\n"
             f"Correct order:"
         )
 
@@ -93,14 +107,14 @@ def _build_prompt(q_type, question, context, choices, blank_count=1,
         sources_text = "\n".join(f"- {s}" for s in (sources or []))
         targets_text = "\n".join(f"- {t}" for t in (targets or []))
         return (
-            f"Match each item on the left with the correct item on the right. "
+            f"{context_block}"
+            f"Match each item on the left with the correct item on the right.\n\n"
+            f"Question: {question}\n\n"
+            f"Left items:\n{sources_text}\n\n"
+            f"Right items:\n{targets_text}\n\n"
             f"Reply with each match on its own line in the format:\n"
             f"Left Item -> Right Item\n"
             f"Use the EXACT text of each item.\n\n"
-            f"Question: {question}\n"
-            f"{context_section}\n"
-            f"Left items:\n{sources_text}\n\n"
-            f"Right items:\n{targets_text}\n\n"
             f"Matches:"
         )
 
@@ -109,12 +123,12 @@ def _build_prompt(q_type, question, context, choices, blank_count=1,
             f"{c['label']}) {c['text']}" for c in choices
         )
         return (
-            f"Answer this multiple choice question. Reply with ONLY the letter "
-            f"({', '.join(c['label'] for c in choices)}).\n\n"
-            f"Question: {question}\n"
-            f"{context_section}\n"
+            f"{context_block}"
+            f"Question: {question}\n\n"
             f"{choices_text}\n\n"
-            f"Answer:"
+            f"Think step-by-step, then on the LAST line write ONLY:\n"
+            f"ANSWER: <letter>\n"
+            f"where <letter> is one of {', '.join(c['label'] for c in choices)}."
         )
 
     elif q_type == "mc_multi":
@@ -122,34 +136,37 @@ def _build_prompt(q_type, question, context, choices, blank_count=1,
             f"{c['label']}) {c['text']}" for c in choices
         )
         return (
-            f"Answer this question by selecting ALL correct options. "
-            f"Reply with ONLY the letters separated by commas (e.g., \"A, C\").\n\n"
-            f"Question: {question}\n"
-            f"{context_section}\n"
+            f"{context_block}"
+            f"Question: {question}\n\n"
             f"{choices_text}\n\n"
-            f"Answer:"
+            f"Select ALL correct options. Think step-by-step, then on the LAST "
+            f"line write ONLY:\n"
+            f"ANSWER: <letters separated by commas>\n"
+            f"Example: ANSWER: A, C"
         )
 
     elif q_type == "fill":
         if blank_count > 1:
             return (
+                f"{context_block}"
+                f"Question: {question}\n\n"
                 f"This question has exactly {blank_count} blanks to fill in. "
-                f"Each blank expects exactly ONE word. "
-                f"Reply with ONLY the single words separated by semicolons. "
-                f"Format: word1; word2; word3\n"
-                f"IMPORTANT: Each answer MUST be exactly one word. Never use phrases.\n\n"
-                f"Question: {question}\n"
-                f"{context_section}\n"
-                f"Answer:"
+                f"Each blank may require one or more words.\n\n"
+                f"Think step-by-step using the textbook passage above, then on "
+                f"the LAST line write ONLY:\n"
+                f"ANSWER: answer1; answer2; answer3\n"
+                f"Separate each blank's answer with a semicolon. Use the exact "
+                f"terminology from the textbook passage when possible."
             )
         else:
             return (
-                f"Fill in the blank with exactly ONE word. "
-                f"Reply with ONLY that single word, nothing else. "
-                f"IMPORTANT: Your answer MUST be exactly one word.\n\n"
-                f"Question: {question}\n"
-                f"{context_section}\n"
-                f"Answer:"
+                f"{context_block}"
+                f"Question: {question}\n\n"
+                f"Fill in the blank. The answer may be one or more words.\n\n"
+                f"Think step-by-step using the textbook passage above, then on "
+                f"the LAST line write ONLY:\n"
+                f"ANSWER: <your answer>\n"
+                f"Use the exact terminology from the textbook passage when possible."
             )
 
     elif q_type == "dropdown":
@@ -158,40 +175,61 @@ def _build_prompt(q_type, question, context, choices, blank_count=1,
             opts = ", ".join(c.get("options", []))
             dropdown_info += f"Blank {i+1} options: {opts}\n"
         return (
-            f"Fill in each blank with the correct option from the choices given. "
-            f"Reply as:\n1: chosen_option\n2: chosen_option\n\n"
-            f"Sentence: {question}\n"
-            f"{context_section}\n"
+            f"{context_block}"
+            f"Sentence: {question}\n\n"
             f"{dropdown_info}\n"
-            f"Answer:"
+            f"Fill in each blank with the correct option from the choices given. "
+            f"Think step-by-step, then on the LAST line write ONLY:\n"
+            f"ANSWER: 1: chosen_option; 2: chosen_option"
         )
 
     else:
         return (
-            f"Answer this question as accurately as possible. "
-            f"Reply with ONLY the answer, nothing else.\n\n"
-            f"Question: {question}\n"
-            f"{context_section}\n"
-            f"Answer:"
+            f"{context_block}"
+            f"Question: {question}\n\n"
+            f"Think step-by-step, then on the LAST line write ONLY:\n"
+            f"ANSWER: <your answer>"
         )
 
 
+def _extract_answer_line(response_text):
+    """Extract the answer from the ANSWER: line at the end of a chain-of-thought response.
+
+    Falls back to the full response text if no ANSWER: line is found (backwards
+    compatible with models that ignore the reasoning instruction).
+    """
+    import re
+    # Search for the last "ANSWER:" line (case-insensitive)
+    match = re.search(r'(?i)^ANSWER:\s*(.+)$', response_text.strip(), re.MULTILINE)
+    if match:
+        return match.group(1).strip()
+    # Fallback: return the last non-empty line
+    lines = [l.strip() for l in response_text.strip().split("\n") if l.strip()]
+    return lines[-1] if lines else response_text.strip()
+
+
 def parse_gpt_response(response_text, question_data):
-    """Parse GPT's response into an action dict."""
+    """Parse the model's response into an action dict."""
     q_type = question_data["type"]
     choices = question_data.get("choices", [])
 
     if q_type == "ordering":
         import re
-        lines = response_text.strip().split("\n")
+        # For ordering, we need the numbered list — look after "ANSWER:" or
+        # "Correct order:" if present, otherwise use the full response.
+        text = response_text.strip()
+        # Try to find everything after the last ANSWER: marker
+        answer_match = re.search(r'(?i)ANSWER:\s*\n?([\s\S]+)$', text)
+        if answer_match:
+            text = answer_match.group(1).strip()
+
+        lines = text.split("\n")
         ordered_items = []
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            # Remove numbering like "1. ", "1) ", "1: "
             line = re.sub(r'^\d+[\.\)\:]\s*', '', line).strip()
-            # Remove leading "- "
             line = re.sub(r'^-\s*', '', line).strip()
             if line:
                 ordered_items.append(line)
@@ -207,7 +245,13 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "matching":
-        lines = response_text.strip().split("\n")
+        import re
+        text = response_text.strip()
+        answer_match = re.search(r'(?i)ANSWER:\s*\n?([\s\S]+)$', text)
+        if answer_match:
+            text = answer_match.group(1).strip()
+
+        lines = text.split("\n")
         matches = []
         for line in lines:
             line = line.strip()
@@ -234,8 +278,8 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "mc_single":
-        letter = response_text.strip().upper()
-        letter = letter.replace(")", "").replace(".", "").replace(":", "").strip()
+        answer = _extract_answer_line(response_text)
+        letter = answer.upper().replace(")", "").replace(".", "").replace(":", "").strip()
         if len(letter) > 1:
             letter = letter[0]
 
@@ -253,8 +297,9 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "mc_multi":
+        answer = _extract_answer_line(response_text)
         letters = [l.strip().upper().replace(")", "").replace(".", "")
-                   for l in response_text.split(",")]
+                   for l in answer.split(",")]
 
         targets = []
         for letter in letters:
@@ -273,12 +318,14 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "fill":
+        import re
         blank_count = question_data.get("blank_count", 1)
         inputs = question_data.get("input_elements", [])
 
+        answer = _extract_answer_line(response_text)
+
         if blank_count > 1:
-            raw = response_text.strip()
-            raw = raw.replace(" and ", "; ")
+            raw = answer
             values = [v.strip() for v in raw.split(";") if v.strip()]
 
             if len(values) == 1 and len(inputs) > 1:
@@ -287,7 +334,6 @@ def parse_gpt_response(response_text, question_data):
             if len(values) == 1 and len(inputs) > 1:
                 values = [v.strip() for v in raw.split("\n") if v.strip()]
 
-            import re
             cleaned = []
             for v in values:
                 v = re.sub(r'^\d+[\.:]\s*', '', v)
@@ -298,7 +344,7 @@ def parse_gpt_response(response_text, question_data):
                 values.append("")
             values = values[:len(inputs)]
         else:
-            values = [response_text.strip()]
+            values = [answer]
 
         return {
             "type": "multi_type",
@@ -308,12 +354,18 @@ def parse_gpt_response(response_text, question_data):
         }
 
     elif q_type == "dropdown":
-        lines = response_text.strip().split("\n")
+        answer = _extract_answer_line(response_text)
+        import re
+        # Parse "1: value; 2: value" or "1: value\n2: value"
+        parts = re.split(r';\s*|\n', answer)
         values = []
-        for line in lines:
-            if ":" in line:
-                val = line.split(":", 1)[1].strip()
+        for part in parts:
+            part = part.strip()
+            if ":" in part:
+                val = part.split(":", 1)[1].strip()
                 values.append(val)
+            elif part:
+                values.append(part)
 
         return {
             "type": "dropdown",
@@ -323,11 +375,12 @@ def parse_gpt_response(response_text, question_data):
         }
 
     else:
+        answer = _extract_answer_line(response_text)
         return {
             "type": "type",
-            "answer_text": response_text.strip(),
+            "answer_text": answer,
             "targets": question_data.get("input_elements", []),
-            "values": [response_text.strip()],
+            "values": [answer],
         }
 
 

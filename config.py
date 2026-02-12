@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 
 # App version - bump this before each new release
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.4"
 
 # GitHub repo for update checks
 GITHUB_REPO = "FanexLLC/Mcgraw-Solver"
@@ -26,8 +26,8 @@ load_dotenv(os.path.join(_get_app_dir(), ".env"))
 SERVER_URL = os.getenv("SERVER_URL", "https://mcgraw-solver-production.up.railway.app")
 ACCESS_KEY = os.getenv("ACCESS_KEY", "")
 
-# OpenAI model (sent to server so it knows which model to use)
-GPT_MODEL = "gpt-4o"
+# AI model (sent to server — supports both OpenAI and Anthropic models)
+GPT_MODEL = "claude-sonnet-4-5-20250929"
 GPT_TEMPERATURE = 0.0
 
 # Timing (seconds) - human-like delays
