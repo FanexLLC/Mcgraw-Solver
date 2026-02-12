@@ -32,6 +32,7 @@ CORS(app, origins=[
 
 # Config
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DOWNLOAD_URL = os.environ.get("DOWNLOAD_URL", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -45,6 +46,10 @@ EMAILJS_PRIVATE_KEY = os.environ.get("EMAILJS_PRIVATE_KEY", "")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "")
 
 client = None
+anthropic_client = None
+
+CLAUDE_MODELS = {"claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001",
+                 "claude-sonnet-4-5", "claude-haiku-4-5"}
 
 # File paths (fallback for local dev without DATABASE_URL)
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "keys.json")
@@ -408,6 +413,16 @@ def get_client():
     return client
 
 
+def get_anthropic_client():
+    global anthropic_client
+    if anthropic_client is None:
+        if not ANTHROPIC_API_KEY:
+            raise RuntimeError("ANTHROPIC_API_KEY not set on server")
+        import anthropic
+        anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    return anthropic_client
+
+
 def generate_key_with_expiry(label, plan):
     """Generate a new access key with expiration based on plan."""
     key = secrets.token_hex(16)
@@ -549,23 +564,36 @@ def solve():
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
 
-    # Call OpenAI
+    # Call the appropriate API
+    system_msg = "You are a knowledgeable academic assistant. Answer precisely and concisely."
     try:
-        oai = get_client()
-        response = oai.chat.completions.create(
-            model=model,
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": "You are a knowledgeable academic assistant. Answer precisely and concisely."},
-                {"role": "user", "content": prompt},
-            ],
-        )
-        answer = response.choices[0].message.content.strip()
+        if model in CLAUDE_MODELS:
+            ac = get_anthropic_client()
+            response = ac.messages.create(
+                model=model,
+                max_tokens=1024,
+                temperature=temperature,
+                system=system_msg,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            answer = response.content[0].text.strip()
+        else:
+            oai = get_client()
+            response = oai.chat.completions.create(
+                model=model,
+                temperature=temperature,
+                messages=[
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            answer = response.choices[0].message.content.strip()
+
         logger.info(f"Key={access_key[:8]}... | Model={model} | Answer={answer[:50]}")
         return jsonify({"answer": answer})
 
     except Exception as e:
-        logger.error(f"OpenAI error: {e}")
+        logger.error(f"API error ({model}): {e}")
         return jsonify({"error": str(e)}), 500
 
 
