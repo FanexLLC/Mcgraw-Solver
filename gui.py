@@ -3,6 +3,7 @@ from tkinter import ttk
 import threading
 import webbrowser
 import os
+import sys
 import time
 import requests
 import config
@@ -54,7 +55,10 @@ class SolverGUI:
         # Load icon
         self._icon_img = None
         self._header_icon = None
-        icon_path = os.path.join(os.path.dirname(__file__), "Icon.png")
+        if getattr(sys, "frozen", False):
+            icon_path = os.path.join(sys._MEIPASS, "Icon.png")
+        else:
+            icon_path = os.path.join(os.path.dirname(__file__), "Icon.png")
         if os.path.exists(icon_path):
             try:
                 self._icon_img = tk.PhotoImage(file=icon_path)
