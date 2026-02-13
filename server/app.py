@@ -752,6 +752,20 @@ def list_keys():
     return jsonify({"keys": db_list_keys()})
 
 
+@app.route("/api/admin/keys", methods=["POST"])
+@require_admin
+def create_key():
+    """Create a new access key."""
+    data = request.get_json() or {}
+    label = data.get("label")
+    plan = data.get("plan", "monthly")
+    if plan not in PLAN_DURATIONS:
+        return jsonify({"error": f"Invalid plan. Choose from: {list(PLAN_DURATIONS.keys())}"}), 400
+    key, entry = generate_key_with_expiry(label, plan)
+    logger.info(f"Created key for '{label}' with plan '{plan}'")
+    return jsonify({"key": key, **entry})
+
+
 @app.route("/api/admin/revoke", methods=["POST"])
 @require_admin
 def revoke_key():
