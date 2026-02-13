@@ -51,6 +51,20 @@ def launch_chrome():
 
 def connect_to_browser():
     """Connect to an already-running Chrome instance on debug port 9222."""
+    import socket
+
+    # Quick check that something is listening on port 9222
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        result = sock.connect_ex(("127.0.0.1", 9222))
+        if result != 0:
+            raise ConnectionError(
+                "Chrome is not running on debug port 9222. "
+                "Click 'Launch Chrome' first, then try again."
+            )
+    finally:
+        sock.close()
+
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 

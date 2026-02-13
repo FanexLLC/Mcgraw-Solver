@@ -35,35 +35,42 @@ def apply_settings(settings):
 def on_start(settings):
     """Called when user clicks Start."""
     global driver, stop_flag, pause_flag
-    stop_flag = False
-    pause_flag = False
 
-    apply_settings(settings)
-
-    # Connect to proxy server
     try:
-        solver.init_client(settings["access_key"])
-        gui.log("Connected to server.")
+        stop_flag = False
+        pause_flag = False
+
+        apply_settings(settings)
+
+        # Connect to proxy server
+        try:
+            solver.init_client(settings["access_key"])
+            gui.log("Connected to server.")
+        except Exception as e:
+            gui.log(f"ERROR: {e}")
+            gui.root.after(0, gui._on_stop)
+            return
+
+        # Connect to existing browser
+        try:
+            gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
+            driver = browser.connect_to_browser()
+            gui.log("Connected to Chrome!")
+            gui.log("Make sure you're on a SmartBook question page.")
+            gui.log("The solver will start answering automatically.")
+        except Exception as e:
+            gui.log(f"ERROR launching browser: {e}")
+            gui.root.after(0, gui._on_stop)
+            return
+
+        # Wait for user to navigate to SmartBook
+        gui.log("Waiting for SmartBook question page...")
+        solve_loop()
+
     except Exception as e:
+        logger.exception("Unexpected error in on_start")
         gui.log(f"ERROR: {e}")
         gui.root.after(0, gui._on_stop)
-        return
-
-    # Connect to existing browser
-    try:
-        gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
-        driver = browser.connect_to_browser()
-        gui.log("Connected to Chrome!")
-        gui.log("Make sure you're on a SmartBook question page.")
-        gui.log("The solver will start answering automatically.")
-    except Exception as e:
-        gui.log(f"ERROR launching browser: {e}")
-        gui.root.after(0, gui._on_stop)
-        return
-
-    # Wait for user to navigate to SmartBook
-    gui.log("Waiting for SmartBook question page...")
-    solve_loop()
 
 
 def solve_loop():
