@@ -14,13 +14,27 @@ GITHUB_REPO = "FanexLLC/Mcgraw-Solver"
 def _get_app_dir():
     """Get the directory where the app lives (works for both script and PyInstaller bundle)."""
     if getattr(sys, "frozen", False):
-        # Running as PyInstaller bundle — use the directory containing the .exe/.app
+        if platform.system() == "Darwin":
+            # macOS: use ~/Library/Application Support so it works from DMG/read-only volumes
+            app_support = os.path.join(os.path.expanduser("~"), "Library",
+                                       "Application Support", "SmartBook Solver")
+            os.makedirs(app_support, exist_ok=True)
+            return app_support
+        # Windows: use the directory containing the .exe
         return os.path.dirname(sys.executable)
     return os.path.dirname(__file__)
 
 
-# Load .env from the app directory
-load_dotenv(os.path.join(_get_app_dir(), ".env"))
+# Load .env — check app dir first, fall back to bundled .env
+_app_dir = _get_app_dir()
+_env_path = os.path.join(_app_dir, ".env")
+if not os.path.exists(_env_path) and getattr(sys, "frozen", False):
+    # First launch: seed from the bundled .env next to the executable
+    _bundled = os.path.join(os.path.dirname(sys.executable), ".env")
+    if os.path.exists(_bundled):
+        import shutil
+        shutil.copy2(_bundled, _env_path)
+load_dotenv(_env_path)
 
 # Proxy server
 SERVER_URL = os.getenv("SERVER_URL", "https://mcgraw-solver-production.up.railway.app")
