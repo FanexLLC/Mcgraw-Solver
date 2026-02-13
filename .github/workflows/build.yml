@@ -66,9 +66,10 @@ jobs:
 
       - name: Build executable
         run: |
-          pyinstaller --onefile --windowed \
+          pyinstaller --onedir --windowed \
             --name "SmartBook Solver" \
             --icon "icon.icns" \
+            --add-data "Icon.png:." \
             --add-binary "${{ steps.sm.outputs.path }}:selenium/webdriver/common/macos/" \
             main.py
 
