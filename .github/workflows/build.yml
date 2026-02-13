@@ -36,11 +36,15 @@ jobs:
             --add-binary "${{ steps.sm.outputs.path }};selenium/webdriver/common/windows/" \
             main.py
 
+      - name: Rename for upload
+        shell: bash
+        run: mv "dist/SmartBook Solver.exe" "dist/SmartBook.Solver.exe"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/SmartBook Solver.exe
+          path: dist/SmartBook.Solver.exe
 
   build-macos:
     runs-on: macos-latest
@@ -64,17 +68,68 @@ jobs:
         run: |
           pyinstaller --onefile --windowed \
             --name "SmartBook Solver" \
+            --icon "icon.icns" \
             --add-binary "${{ steps.sm.outputs.path }}:selenium/webdriver/common/macos/" \
             main.py
 
-      - name: Zip macOS app
-        run: cd dist && zip -r "SmartBook Solver macOS.zip" "SmartBook Solver.app" 2>/dev/null || zip -r "SmartBook Solver macOS.zip" "SmartBook Solver"
+      - name: Import signing certificate
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+        run: |
+          echo "$MACOS_CERTIFICATE" | base64 --decode > certificate.p12
+          KEYCHAIN_PWD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PWD" build.keychain
+          security import certificate.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PWD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PWD" build.keychain
+          rm certificate.p12
+
+      - name: Sign the app
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        run: |
+          codesign --deep --force --options runtime \
+            --sign "Developer ID Application: Robert Perez (R8H9432CU2)" \
+            "dist/SmartBook Solver.app"
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "SmartBook Solver" \
+            -srcfolder "dist/SmartBook Solver.app" \
+            -ov -format UDZO \
+            "dist/SmartBook.Solver.macOS.dmg"
+
+      - name: Sign DMG
+        if: env.MACOS_CERTIFICATE != ''
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        run: |
+          codesign --force --sign "Developer ID Application: Robert Perez (R8H9432CU2)" \
+            "dist/SmartBook.Solver.macOS.dmg"
+
+      - name: Notarize DMG
+        if: env.APPLE_ID != ''
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcrun notarytool submit "dist/SmartBook.Solver.macOS.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "dist/SmartBook.Solver.macOS.dmg"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
-          path: dist/SmartBook Solver macOS.zip
+          path: dist/SmartBook.Solver.macOS.dmg
 
   release:
     needs: [build-windows, build-macos]
@@ -102,24 +157,24 @@ jobs:
             | Platform | File |
             |----------|------|
             | Windows | `SmartBook Solver.exe` |
-            | macOS | `SmartBook Solver macOS.zip` |
+            | macOS | `SmartBook Solver macOS.dmg` |
 
             ## Installation
 
             ### Windows
-            1. Download `SmartBook Solver.exe`
+            1. Download `SmartBook.Solver.exe`
             2. Double-click to run
 
             ### macOS
-            1. Download `SmartBook Solver macOS.zip`
-            2. Unzip it
-            3. **First time only:** Right-click the app → click **Open** → click **Open** again in the popup
-               - If you don't see "Open", go to **System Settings → Privacy & Security** and click **Open Anyway**
-            4. After that, it opens normally with a double-click
+            1. Download `SmartBook.Solver.macOS.dmg`
+            2. Open the DMG
+            3. Drag **SmartBook Solver** to your **Applications** folder
+            4. Eject the DMG
+            5. Double-click **SmartBook Solver** to open
 
             ### Both platforms
             - You need **Google Chrome** installed
             - Enter your **Access Key** in the app settings
           files: |
-            artifacts/windows/SmartBook Solver.exe
-            artifacts/macos/SmartBook Solver macOS.zip
+            artifacts/windows/SmartBook.Solver.exe
+            artifacts/macos/SmartBook.Solver.macOS.dmg
