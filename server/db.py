@@ -64,6 +64,11 @@ def init_db() -> None:
         )
     """)
 
+    # Migration: Add referral column if it doesn't exist (for existing databases)
+    cur.execute("""
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS referral TEXT
+    """)
+
     # Seed from JSON if DB is empty
     _seed_keys(cur)
     _seed_orders(cur)
