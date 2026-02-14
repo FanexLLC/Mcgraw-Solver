@@ -1,15 +1,18 @@
+from __future__ import annotations
 import time
 import logging
 import sys
+from typing import Any
+
 import config
 import browser
 import parser
 import solver
 import human
+import actions
 from gui import SolverGUI
-from selenium.webdriver.common.by import By
+from models import Action
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -17,525 +20,226 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global state
-driver = None
-gui = None
-pause_flag = False
-stop_flag = False
 
+class SolverApp:
+    """Top-level orchestrator that ties the GUI, browser, and solver together."""
 
-def apply_settings(settings):
-    """Apply GUI settings to config."""
-    config.MIN_DELAY = settings["min_delay"]
-    config.MAX_DELAY = settings["max_delay"]
-    config.TARGET_ACCURACY = settings["accuracy"]
-    config.GPT_MODEL = settings["model"]
+    def __init__(self) -> None:
+        self.driver = None
+        self.pause_flag = False
+        self.stop_flag = False
+        self.gui = SolverGUI(
+            on_start=self.on_start,
+            on_pause=self.on_pause,
+            on_stop=self.on_stop,
+        )
 
+    # ── Settings ──────────────────────────────────────────────────
 
-def on_start(settings):
-    """Called when user clicks Start."""
-    global driver, stop_flag, pause_flag
+    def _apply_settings(self, settings: dict[str, Any]) -> None:
+        config.MIN_DELAY = settings["min_delay"]
+        config.MAX_DELAY = settings["max_delay"]
+        config.TARGET_ACCURACY = settings["accuracy"]
+        config.GPT_MODEL = settings["model"]
 
-    try:
-        stop_flag = False
-        pause_flag = False
+    # ── Callbacks ─────────────────────────────────────────────────
 
-        apply_settings(settings)
-
-        # Connect to proxy server
+    def on_start(self, settings: dict[str, Any]) -> None:
         try:
-            solver.init_client(settings["access_key"])
-            gui.log("Connected to server.")
+            self.stop_flag = False
+            self.pause_flag = False
+            self._apply_settings(settings)
+
+            try:
+                solver.init_client(settings["access_key"])
+                self.gui.log("Connected to server.")
+            except (ConnectionError, ValueError) as e:
+                self.gui.log(f"ERROR: {e}")
+                self.gui.root.after(0, self.gui._on_stop)
+                return
+
+            try:
+                self.gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
+                self.driver = browser.connect_to_browser()
+                self.gui.log("Connected to Chrome!")
+                self.gui.log("Make sure you're on a SmartBook question page.")
+                self.gui.log("The solver will start answering automatically.")
+            except ConnectionError as e:
+                self.gui.log(f"ERROR launching browser: {e}")
+                self.gui.root.after(0, self.gui._on_stop)
+                return
+
+            self.gui.log("Waiting for SmartBook question page...")
+            self._solve_loop()
+
         except Exception as e:
-            gui.log(f"ERROR: {e}")
-            gui.root.after(0, gui._on_stop)
-            return
+            logger.exception("Unexpected error in on_start")
+            self.gui.log(f"ERROR: {e}")
+            self.gui.root.after(0, self.gui._on_stop)
 
-        # Connect to existing browser
-        try:
-            gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
-            driver = browser.connect_to_browser()
-            gui.log("Connected to Chrome!")
-            gui.log("Make sure you're on a SmartBook question page.")
-            gui.log("The solver will start answering automatically.")
-        except Exception as e:
-            gui.log(f"ERROR launching browser: {e}")
-            gui.root.after(0, gui._on_stop)
-            return
+    def on_pause(self, is_paused: bool) -> None:
+        self.pause_flag = is_paused
 
-        # Wait for user to navigate to SmartBook
-        gui.log("Waiting for SmartBook question page...")
-        solve_loop()
+    def on_stop(self) -> None:
+        self.stop_flag = True
+        self.driver = None
 
-    except Exception as e:
-        logger.exception("Unexpected error in on_start")
-        gui.log(f"ERROR: {e}")
-        gui.root.after(0, gui._on_stop)
+    # ── Main Loop ─────────────────────────────────────────────────
 
+    def _solve_loop(self) -> None:
+        question_num = 0
+        correct_num = 0
+        consecutive_unknown = 0
 
-def solve_loop():
-    """Main solve loop."""
-    global stop_flag, pause_flag, driver
-
-    question_num = 0
-    correct_num = 0
-    consecutive_unknown = 0
-
-    while not stop_flag:
-        # Check pause
-        while pause_flag and not stop_flag:
-            time.sleep(0.5)
-
-        if stop_flag:
-            break
-
-        try:
-            # Wait for page to be ready
-            if not browser.is_page_ready(driver):
-                time.sleep(1)
-                continue
-
-            # Detect page type
-            page_type = parser.detect_page_type(driver)
-            logger.info(f"Page type: {page_type}")
-
-            if page_type == "loading":
-                time.sleep(1)
-                consecutive_unknown = 0
-                continue
-
-            elif page_type == "complete":
-                gui.log(f"Assignment complete! {correct_num}/{question_num} answered.")
-                gui.update_status(question_num, correct_num, question_num)
+        while not self.stop_flag:
+            while self.pause_flag and not self.stop_flag:
+                time.sleep(0.5)
+            if self.stop_flag:
                 break
 
-            elif page_type == "recharge":
-                gui.log("Concept resource page detected — opening and closing reading...")
-                parser.handle_recharge_page(driver)
-                human.random_delay(1.0, 2.0)
-                gui.log("Clicking Next Question...")
-                parser.click_next_question(driver)
-                human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
-                consecutive_unknown = 0
-                continue
-
-            elif page_type == "reading":
-                gui.log("Reading screen detected, clicking Next...")
-                human.random_delay(1.0, 3.0)
-                parser.click_next_button(driver)
-                human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
-                consecutive_unknown = 0
-                continue
-
-            elif page_type == "unknown":
-                consecutive_unknown += 1
-                if consecutive_unknown > 10:
-                    gui.log("No SmartBook content detected. Waiting...")
-                    consecutive_unknown = 0
-                time.sleep(2)
-                continue
-
-            elif page_type == "question":
-                consecutive_unknown = 0
-                question_num += 1
-
-                # Parse the question
-                question_data = parser.parse_question(driver)
-                if question_data["type"] == "unknown":
-                    gui.log(f"Q{question_num}: Unknown question type. Skipping...")
-                    human.random_delay(2.0, 4.0)
-                    parser.click_next_button(driver)
-                    human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+            try:
+                if not browser.is_page_ready(self.driver):
+                    time.sleep(1)
                     continue
 
-                q_preview = question_data["question"][:60]
-                gui.log(f"Q{question_num}: {q_preview}...")
-
-                # Simulate reading the question
-                human.reading_delay(question_data["question"])
-
-                # Occasional scroll
-                human.random_scroll(driver)
-
-                # Get answer from GPT
-                try:
-                    action = solver.get_answer(question_data)
-                except Exception as e:
-                    gui.log(f"  Server error: {e}. Retrying...")
-                    time.sleep(3)
-                    try:
-                        action = solver.get_answer(question_data)
-                    except Exception as e2:
-                        gui.log(f"  Server error again: {e2}. Skipping question.")
-                        parser.click_next_button(driver)
-                        human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
-                        continue
-
-                # Maybe inject intentional error
-                action, was_miss = solver.maybe_inject_error(action, question_data)
-                miss_tag = " (intentional miss)" if was_miss else ""
-
-                # Execute the answer
-                try:
-                    _execute_action(action, driver)
-                    if not was_miss:
-                        correct_num += 1
-                    gui.log(f"  -> {action['answer_text']}{miss_tag}")
-                except Exception as e:
-                    gui.log(f"  Error executing answer: {e}")
-
-                gui.update_status(question_num, correct_num)
-
-                # Pause before submitting
-                human.random_delay(0.5, 1.5)
-
-                # Submit answer via confidence button
-                parser.submit_with_confidence(driver)
-
-                # Check if resource review is required (after wrong answers)
-                human.random_delay(1.5, 2.5)
-                if parser.needs_resource_review(driver):
-                    gui.log("  Resource review required — reading concept...")
-                    parser.handle_recharge_page(driver)
-                    human.random_delay(1.0, 2.0)
-
-                # Click "Next Question" button if it appears
-                human.random_delay(1.0, 2.0)
-                parser.click_next_question(driver)
-
-                # Wait between questions
-                delay = human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
-                gui.log(f"  Waiting {delay:.1f}s...")
-
-        except Exception as e:
-            logger.exception("Error in solve loop")
-            gui.log(f"Error: {e}")
-            time.sleep(3)
-
-    # Cleanup - don't close Chrome, just disconnect
-    gui.log("Solve loop ended.")
-    driver = None
-    gui.root.after(0, gui._on_stop)
-
-
-def _click_choice(drv, element):
-    """Click a multiple choice / true-false option using JS to ensure Angular registers it."""
-    human.random_delay(0.2, 0.5)
-    drv.execute_script("""
-        var el = arguments[0];
-
-        // Find the radio/checkbox input — could be the element itself or inside it
-        var input = el;
-        if (el.tagName !== 'INPUT') {
-            input = el.querySelector('input[type="radio"], input[type="checkbox"]');
-        }
-
-        // Find the label associated with this input (Angular often binds click on label)
-        var label = null;
-        if (input && input.id) {
-            label = document.querySelector('label[for="' + input.id + '"]');
-        }
-        if (!label && input) {
-            label = input.closest('label');
-        }
-
-        // Find the parent .choice or .choice-row div where Angular may bind handlers
-        var choice = el.closest('.choice') || el.closest('.choice-row');
-
-        // The click target: prefer label, then choice container, then the input
-        var clickTarget = label || choice || input || el;
-
-        // Dispatch the full mouse event sequence that Zone.js intercepts
-        function fireMouseSequence(target) {
-            var rect = target.getBoundingClientRect();
-            var cx = rect.left + rect.width / 2;
-            var cy = rect.top + rect.height / 2;
-            var opts = {bubbles: true, cancelable: true, view: window,
-                        clientX: cx, clientY: cy, button: 0};
-
-            target.dispatchEvent(new PointerEvent('pointerdown', opts));
-            target.dispatchEvent(new MouseEvent('mousedown', opts));
-            target.dispatchEvent(new PointerEvent('pointerup', opts));
-            target.dispatchEvent(new MouseEvent('mouseup', opts));
-            target.dispatchEvent(new MouseEvent('click', opts));
-        }
-
-        // Fire on the click target (label or choice container)
-        fireMouseSequence(clickTarget);
-
-        // If the input still isn't checked, force it and fire change
-        if (input && !input.checked) {
-            input.checked = true;
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-
-        // Nudge Angular's change detection if available
-        try {
-            var ngZone = window.getAllAngularTestabilities && window.getAllAngularTestabilities();
-            if (ngZone && ngZone.length > 0) {
-                ngZone[0]._ngZone.run(function(){});
-            }
-        } catch(e) {}
-    """, element)
-
-
-def _execute_action(action, drv):
-    """Execute an answer action on the page."""
-    action_type = action["type"]
-    targets = action.get("targets", [])
-    values = action.get("values", [])
-
-    if action_type == "click" and targets:
-        _click_choice(drv, targets[0])
-
-    elif action_type == "multi_click":
-        for target in targets:
-            _click_choice(drv, target)
-            human.random_delay(0.3, 0.8)
-
-    elif action_type == "type" and targets and values:
-        browser.safe_click(drv, targets[0])
-        human.random_delay(0.2, 0.5)
-        browser.safe_type(drv, targets[0], values[0])
-
-    elif action_type == "multi_type" and targets and values:
-        for i, (target, value) in enumerate(zip(targets, values)):
-            # Click the specific input to focus it
-            drv.execute_script("arguments[0].focus(); arguments[0].click();", target)
-            human.random_delay(0.3, 0.6)
-
-            # Clear and set value via JS with native setter for Angular
-            drv.execute_script("""
-                var el = arguments[0];
-                var text = arguments[1];
-                el.value = '';
-                var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                    window.HTMLInputElement.prototype, 'value').set;
-                nativeInputValueSetter.call(el, text);
-                el.dispatchEvent(new Event('input', { bubbles: true }));
-                el.dispatchEvent(new Event('change', { bubbles: true }));
-                el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
-                el.dispatchEvent(new Event('blur', { bubbles: true }));
-            """, target, value)
-
-            if i < len(targets) - 1:
-                human.random_delay(0.5, 1.2)
-
-    elif action_type == "dropdown" and targets and values:
-        from selenium.webdriver.support.ui import Select
-        for i, (target, value) in enumerate(zip(targets, values)):
-            try:
-                select = Select(target)
-                select.select_by_visible_text(value)
-            except Exception:
-                # Try partial match
-                for option in target.find_elements_by_tag_name("option"):
-                    if value.lower() in option.text.lower():
-                        option.click()
-                        break
-            if i < len(targets) - 1:
-                human.random_delay(0.3, 0.8)
-
-    elif action_type == "ordering":
-        _execute_ordering(action, drv)
-
-    elif action_type == "matching":
-        _execute_matching(action, drv)
-
-
-def _execute_ordering(action, drv):
-    """Reorder sortable items using keyboard controls for react-beautiful-dnd.
-
-    Strategy: For each position, find which item should go there, then use
-    keyboard shortcuts (Space to lift, Arrow keys to move, Space to drop)
-    which react-beautiful-dnd natively supports.
-    """
-    ordered_items = action.get("ordered_items", [])
-    item_elements = action.get("item_elements", [])
-    original_items = action.get("original_items", [])
-
-    if not ordered_items or not item_elements:
-        logger.warning("Ordering: no items or elements to reorder")
-        return
-
-    # Fuzzy match GPT's text to original items
-    def fuzzy_match(gpt_text, original_texts):
-        gpt_lower = gpt_text.lower().strip()
-        best_idx = -1
-        best_ratio = 0
-        for i, orig in enumerate(original_texts):
-            orig_lower = orig.lower().strip()
-            if gpt_lower == orig_lower:
-                return i
-            if gpt_lower in orig_lower or orig_lower in gpt_lower:
-                ratio = min(len(gpt_lower), len(orig_lower)) / max(len(gpt_lower), len(orig_lower))
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_idx = i
-        return best_idx if best_ratio > 0.5 else -1
-
-    # desired_order[i] = original index of item that should be at position i
-    desired_order = []
-    for item_text in ordered_items:
-        idx = fuzzy_match(item_text, original_items)
-        if idx >= 0 and idx not in desired_order:
-            desired_order.append(idx)
-
-    if len(desired_order) != len(original_items):
-        logger.warning(f"Ordering: could only match {len(desired_order)}/{len(original_items)} items")
-        return
-
-    if desired_order == list(range(len(original_items))):
-        logger.info("Ordering: items already in correct order")
-        return
-
-    # Build current_positions: current_positions[orig_idx] = current position in DOM
-    current_positions = list(range(len(original_items)))
-
-    from selenium.webdriver.common.keys import Keys
-
-    for target_pos in range(len(desired_order)):
-        orig_idx = desired_order[target_pos]
-        current_pos = current_positions[orig_idx]
-
-        if current_pos == target_pos:
-            continue  # Already in place
-
-        moves = current_pos - target_pos  # Positive = move up, negative = move down
-        if moves == 0:
-            continue
-
-        # Re-query the DOM to get fresh element references
-        fresh_items = browser.find_elements_safe(drv, ".sortable-component .responses-container .choice-item")
-        if current_pos >= len(fresh_items):
-            logger.warning(f"Ordering: position {current_pos} out of range")
-            continue
-
-        item_el = fresh_items[current_pos]
-
-        # Focus the element
-        drv.execute_script("arguments[0].focus();", item_el)
-        human.random_delay(0.2, 0.4)
-
-        # Press Space to "lift" the item
-        item_el.send_keys(Keys.SPACE)
-        human.random_delay(0.3, 0.6)
-
-        # Press arrow keys to move it
-        arrow_key = Keys.ARROW_UP if moves > 0 else Keys.ARROW_DOWN
-        for _ in range(abs(moves)):
-            item_el.send_keys(arrow_key)
-            human.random_delay(0.15, 0.35)
-
-        # Press Space to "drop" the item
-        item_el.send_keys(Keys.SPACE)
-        human.random_delay(0.3, 0.7)
-
-        # Update current_positions to reflect the move
-        if moves > 0:  # Moved up
-            for idx in range(len(current_positions)):
-                if current_positions[idx] >= target_pos and current_positions[idx] < current_pos:
-                    current_positions[idx] += 1
-        else:  # Moved down
-            for idx in range(len(current_positions)):
-                if current_positions[idx] > current_pos and current_positions[idx] <= target_pos:
-                    current_positions[idx] -= 1
-        current_positions[orig_idx] = target_pos
-
-        logger.info(f"Ordering: moved item from position {current_pos} to {target_pos}")
-
-    logger.info(f"Ordering: reordered {len(desired_order)} items")
-
-
-def _execute_matching(action, drv):
-    """Execute a matching question by dragging choice items to drop zones.
-
-    Uses Selenium ActionChains to simulate real mouse drag-and-drop,
-    which works with react-beautiful-dnd (synthetic DragEvents do not).
-    """
-    from selenium.webdriver.common.action_chains import ActionChains
-
-    matches = action.get("matches", [])
-    drop_zones = action.get("source_elements", [])   # drop zones indexed by label
-    labels = action.get("sources", [])                # label texts
-    choices = action.get("targets_list", [])           # choice texts
-
-    if not matches or not drop_zones:
-        logger.warning("Matching: no matches or drop zones")
-        return
-
-    for match in matches:
-        label_text = match["source"].lower().strip()
-        choice_text = match["target"].lower().strip()
-
-        # Find the drop zone index by label
-        drop_idx = None
-        for i, label in enumerate(labels):
-            if label_text in label.lower() or label.lower() in label_text:
-                drop_idx = i
-                break
-
-        if drop_idx is None or drop_idx >= len(drop_zones):
-            logger.warning(f"Matching: couldn't find drop zone for '{match['source']}'")
-            continue
-
-        # Re-query choice elements each time (DOM changes after each drag)
-        fresh_choices = browser.find_elements_safe(
-            drv, ".matching-component .choices-container .choice-item-wrapper")
-
-        choice_el = None
-        for el in fresh_choices:
-            try:
-                text = el.find_element(By.CSS_SELECTOR, ".content p").text.strip().lower()
-                if choice_text in text or text in choice_text:
-                    choice_el = el
+                page_type = parser.detect_page_type(self.driver)
+                logger.info(f"Page type: {page_type}")
+
+                if page_type == "loading":
+                    time.sleep(1)
+                    consecutive_unknown = 0
+                    continue
+
+                if page_type == "complete":
+                    self.gui.log(f"Assignment complete! {correct_num}/{question_num} answered.")
+                    self.gui.update_status(question_num, correct_num, question_num)
                     break
-            except Exception:
-                continue
 
-        if not choice_el:
-            logger.warning(f"Matching: couldn't find choice element for '{match['target']}'")
-            continue
+                if page_type == "recharge":
+                    self._handle_recharge()
+                    consecutive_unknown = 0
+                    continue
 
-        # Drag the choice to the drop zone using real browser events
+                if page_type == "reading":
+                    self.gui.log("Reading screen detected, clicking Next...")
+                    human.random_delay(1.0, 3.0)
+                    parser.click_next_button(self.driver)
+                    human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+                    consecutive_unknown = 0
+                    continue
+
+                if page_type == "unknown":
+                    consecutive_unknown += 1
+                    if consecutive_unknown > 10:
+                        self.gui.log("No SmartBook content detected. Waiting...")
+                        consecutive_unknown = 0
+                    time.sleep(2)
+                    continue
+
+                if page_type == "question":
+                    consecutive_unknown = 0
+                    question_num += 1
+                    was_correct = self._handle_question(question_num)
+                    if was_correct:
+                        correct_num += 1
+                    self.gui.update_status(question_num, correct_num)
+
+            except Exception as e:
+                logger.exception("Error in solve loop")
+                self.gui.log(f"Error: {e}")
+                time.sleep(3)
+
+        self.gui.log("Solve loop ended.")
+        self.driver = None
+        self.gui.root.after(0, self.gui._on_stop)
+
+    # ── Question Handling ─────────────────────────────────────────
+
+    def _handle_question(self, question_num: int) -> bool:
+        """Parse, solve, and execute a single question. Returns True if answered correctly."""
+        question_data = parser.parse_question(self.driver)
+
+        if question_data.type == "unknown":
+            self.gui.log(f"Q{question_num}: Unknown question type. Skipping...")
+            human.random_delay(2.0, 4.0)
+            parser.click_next_button(self.driver)
+            human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+            return False
+
+        q_preview = question_data.question[:60]
+        self.gui.log(f"Q{question_num}: {q_preview}...")
+
+        human.reading_delay(question_data.question)
+        human.random_scroll(self.driver)
+
+        # Get answer (with one retry)
+        action = self._get_answer_with_retry(question_data)
+        if action is None:
+            parser.click_next_button(self.driver)
+            human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+            return False
+
+        action, was_miss = solver.maybe_inject_error(action, question_data)
+        miss_tag = " (intentional miss)" if was_miss else ""
+
         try:
-            actions = ActionChains(drv)
-            actions.move_to_element(choice_el)
-            actions.pause(0.2)
-            actions.click_and_hold(choice_el)
-            actions.pause(0.4)
-            actions.move_by_offset(0, -10)   # small move to trigger drag detection
-            actions.pause(0.2)
-            actions.move_to_element(drop_zones[drop_idx])
-            actions.pause(0.3)
-            actions.release()
-            actions.perform()
-
-            human.random_delay(0.5, 1.2)
-            logger.info(f"Matching: dragged '{match['target']}' -> '{match['source']}'")
+            actions.execute(action, self.driver)
+            self.gui.log(f"  -> {action.answer_text}{miss_tag}")
         except Exception as e:
-            logger.warning(f"Matching: drag failed for '{match['source']}' -> '{match['target']}': {e}")
+            self.gui.log(f"  Error executing answer: {e}")
+            return False
 
-    logger.info(f"Matching: completed {len(matches)} matches")
+        human.random_delay(0.5, 1.5)
+        parser.submit_with_confidence(self.driver)
 
-def on_pause(is_paused):
-    """Called when user clicks Pause/Resume."""
-    global pause_flag
-    pause_flag = is_paused
+        human.random_delay(1.5, 2.5)
+        if parser.needs_resource_review(self.driver):
+            self.gui.log("  Resource review required — reading concept...")
+            parser.handle_recharge_page(self.driver)
+            human.random_delay(1.0, 2.0)
 
+        human.random_delay(1.0, 2.0)
+        parser.click_next_question(self.driver)
 
-def on_stop():
-    """Called when user clicks Stop."""
-    global stop_flag, driver
-    stop_flag = True
-    driver = None  # disconnect without closing Chrome
+        delay = human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+        self.gui.log(f"  Waiting {delay:.1f}s...")
+
+        return not was_miss
+
+    def _get_answer_with_retry(self, question_data) -> Action | None:
+        """Try to get an answer, retry once on failure."""
+        try:
+            return solver.get_answer(question_data)
+        except PermissionError as e:
+            self.gui.log(f"  {e}")
+            return None
+        except Exception as e:
+            self.gui.log(f"  Server error: {e}. Retrying...")
+            time.sleep(3)
+            try:
+                return solver.get_answer(question_data)
+            except Exception as e2:
+                self.gui.log(f"  Server error again: {e2}. Skipping question.")
+                return None
+
+    def _handle_recharge(self) -> None:
+        self.gui.log("Concept resource page detected — opening and closing reading...")
+        parser.handle_recharge_page(self.driver)
+        human.random_delay(1.0, 2.0)
+        self.gui.log("Clicking Next Question...")
+        parser.click_next_question(self.driver)
+        human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+
+    # ── Entry Point ───────────────────────────────────────────────
+
+    def run(self) -> None:
+        self.gui.log("Welcome to SmartBook Solver!")
+        self.gui.log("1. Click 'Launch Chrome' to open Chrome")
+        self.gui.log("2. Navigate to your SmartBook assignment")
+        self.gui.log("3. Enter your access key and click Start")
+        self.gui.run()
 
 
 if __name__ == "__main__":
-    gui = SolverGUI(on_start=on_start, on_pause=on_pause, on_stop=on_stop)
-    gui.log("Welcome to SmartBook Solver!")
-    gui.log("1. Click 'Launch Chrome' to open Chrome")
-    gui.log("2. Navigate to your SmartBook assignment")
-    gui.log("3. Enter your access key and click Start")
-    gui.run()
+    app = SolverApp()
+    app.run()

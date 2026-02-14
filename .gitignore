@@ -1,6 +1,18 @@
+# Secrets — never commit these
 .env
+.env.local
+server/keys.json
+server/orders.json
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Build artifacts
 dist/
 build/
 *.spec
 *.exe
+*.app
