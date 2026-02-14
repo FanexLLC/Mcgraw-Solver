@@ -56,6 +56,7 @@ async function submitOrder(e) {
     venmo_username: document.getElementById("checkout-venmo").value.trim(),
     transaction_id: document.getElementById("checkout-txn").value.trim(),
     plan: document.getElementById("checkout-plan").value,
+    referral: document.getElementById("checkout-referral").value.trim(),
   };
 
   try {
@@ -118,7 +119,7 @@ async function loadOrders() {
   var historyBody = document.getElementById("history-orders-body");
   if (!pendingBody) return;
 
-  pendingBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim)">Loading...</td></tr>';
+  pendingBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-dim)">Loading...</td></tr>';
 
   try {
     var resp = await fetch(API_URL + "/api/admin/orders", {
@@ -132,7 +133,7 @@ async function loadOrders() {
 
     // Render pending
     if (pending.length === 0) {
-      pendingBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim)">No pending orders</td></tr>';
+      pendingBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-dim)">No pending orders</td></tr>';
     } else {
       pendingBody.innerHTML = pending.map(function (o) {
         return '<tr>' +
@@ -141,6 +142,7 @@ async function loadOrders() {
           '<td>' + escHtml(o.venmo_username) + '</td>' +
           '<td>' + escHtml(o.transaction_id) + '</td>' +
           '<td>' + escHtml(o.plan) + '</td>' +
+          '<td>' + (o.referral ? escHtml(o.referral) : '-') + '</td>' +
           '<td>' + formatDate(o.created) + '</td>' +
           '<td>' +
             '<button class="btn-sm btn-approve" onclick="approveOrder(\'' + o.id + '\', this)">Approve</button>' +
@@ -152,7 +154,7 @@ async function loadOrders() {
 
     // Render history
     if (history.length === 0) {
-      historyBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-dim)">No history yet</td></tr>';
+      historyBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-dim)">No history yet</td></tr>';
     } else {
       historyBody.innerHTML = history.sort(function (a, b) {
         return (b.approved_at || b.created || "").localeCompare(a.approved_at || a.created || "");
@@ -164,13 +166,14 @@ async function loadOrders() {
           '<td>' + escHtml(o.plan) + '</td>' +
           '<td><span class="status-badge ' + statusClass + '">' + o.status + '</span></td>' +
           '<td>' + (o.key ? '<span class="key-display">' + escHtml(o.key) + '</span>' : '-') + '</td>' +
+          '<td>' + (o.referral ? escHtml(o.referral) : '-') + '</td>' +
           '<td>' + formatDate(o.approved_at || o.created) + '</td>' +
           '<td>' + escHtml(o.transaction_id) + '</td>' +
         '</tr>';
       }).join("");
     }
   } catch (err) {
-    pendingBody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--accent-red)">Error loading orders</td></tr>';
+    pendingBody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--accent-red)">Error loading orders</td></tr>';
   }
 }
 
