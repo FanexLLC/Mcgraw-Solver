@@ -241,6 +241,8 @@ class SolverGUI:
         self._login_btn.config(state="normal", text="Continue")
         # Set the key on the solver page too
         self.access_key_var.set(self._validated_key)
+        # Build the model dropdown now that we have user's plan info
+        self._build_model_dropdown()
         # Transition after a brief moment
         self.root.after(400, self._show_solver)
 
@@ -306,32 +308,9 @@ class SolverGUI:
         # Hidden access key var (carries over from login)
         self.access_key_var = tk.StringVar(value=config.ACCESS_KEY)
 
-        # Model selection - only show if user has multiple models
-        # Build allowed models list based on user's plan
-        if self._allowed_models and len(self._allowed_models) > 1:
-            self._setting_row(card, "AI Model")
-
-            # Create display names from allowed models
-            model_display_options = [self._model_names.get(m, m) for m in self._allowed_models]
-            default_display = self._model_names.get(self._preferred_model, model_display_options[0])
-
-            self.model_var = tk.StringVar(value=default_display)
-            self.model_combo = ttk.Combobox(
-                card, textvariable=self.model_var,
-                values=model_display_options,
-                state="readonly", width=30, style="Dark.TCombobox",
-                font=(_FONT, 11),
-            )
-            self.model_combo.pack(padx=16, pady=(0, 10), anchor="w")
-            self.model_combo.bind("<<ComboboxSelected>>", self._on_model_changed)
-        elif self._allowed_models:
-            # Single model - just show which one
-            self._setting_row(card, "AI Model")
-            model_name = self._model_names.get(self._allowed_models[0], self._allowed_models[0])
-            tk.Label(
-                card, text=model_name,
-                font=(_FONT, 11), fg=_C["text"], bg=_C["bg_card"]
-            ).pack(padx=16, pady=(0, 10), anchor="w")
+        # Model selection - container (will be populated after login)
+        self._model_container = tk.Frame(card, bg=_C["bg_card"])
+        self._model_container.pack(fill="x", padx=0, pady=0)
 
         # Speed + Accuracy row
         row = tk.Frame(card, bg=_C["bg_card"])
@@ -471,6 +450,33 @@ class SolverGUI:
     # ==================================================================
     # HELPERS
     # ==================================================================
+    def _build_model_dropdown(self):
+        """Build the model dropdown after login when we know user's allowed models."""
+        # Clear any existing widgets in the container
+        for widget in self._model_container.winfo_children():
+            widget.destroy()
+
+        if not self._allowed_models:
+            return
+
+        # Add label
+        tk.Label(self._model_container, text="AI Model", font=(_FONT, 9, "bold"),
+                 fg=_C["text_dim"], bg=_C["bg_card"]).pack(anchor="w", padx=16, pady=(6, 3))
+
+        # Create display names from allowed models
+        model_display_options = [self._model_names.get(m, m) for m in self._allowed_models]
+        default_display = self._model_names.get(self._preferred_model, model_display_options[0])
+
+        self.model_var = tk.StringVar(value=default_display)
+        self.model_combo = ttk.Combobox(
+            self._model_container, textvariable=self.model_var,
+            values=model_display_options,
+            state="readonly", width=30, style="Dark.TCombobox",
+            font=(_FONT, 11),
+        )
+        self.model_combo.pack(padx=16, pady=(0, 10), anchor="w")
+        self.model_combo.bind("<<ComboboxSelected>>", self._on_model_changed)
+
     def _setting_row(self, parent, label):
         tk.Label(parent, text=label, font=(_FONT, 9, "bold"),
                  fg=_C["text_dim"], bg=_C["bg_card"]).pack(anchor="w", padx=16, pady=(6, 3))

@@ -77,8 +77,7 @@ PRICE_AMOUNTS = {
 PLAN_MODEL_ACCESS = {
     "weekly": ["gpt-4o-mini"],
     "monthly": ["gpt-4o-mini", "gpt-4o"],
-    "semester": ["gpt-4o-mini", "gpt-4o", "claude-sonnet-4-5-20250929",
-                 "claude-sonnet-4-5", "claude-haiku-4-5-20251001", "claude-haiku-4-5"],
+    "semester": ["gpt-4o-mini", "gpt-4o", "claude-sonnet-4-5-20250929"],
 }
 
 # Default models for each plan
@@ -93,9 +92,6 @@ MODEL_DISPLAY_NAMES = {
     "gpt-4o-mini": "GPT-4o Mini",
     "gpt-4o": "GPT-4o",
     "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5",
-    "claude-sonnet-4-5": "Claude Sonnet 4.5",
-    "claude-haiku-4-5-20251001": "Claude Haiku 4.5",
-    "claude-haiku-4-5": "Claude Haiku 4.5",
 }
 
 
