@@ -5,3 +5,6 @@ gunicorn
 flask-cors
 requests
 psycopg2-binary
+stripe>=7.0.0
+PyJWT>=2.8.0
+APScheduler>=3.10.0

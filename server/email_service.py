@@ -19,6 +19,13 @@ DOWNLOAD_URL = os.environ.get("DOWNLOAD_URL", "")
 
 EMAILJS_API_URL = "https://api.emailjs.com/api/v1.0/email/send"
 
+# Plan display names with updated pricing
+PLAN_DISPLAY = {
+    "weekly": "Weekly ($10)",
+    "monthly": "Monthly ($25)",
+    "semester": "Semester ($50)"
+}
+
 
 def send_key_email(email: str, name: str, key: str, plan: str, expiry_date: str) -> bool:
     """Send access key email to a customer."""
@@ -44,7 +51,7 @@ def send_key_email(email: str, name: str, key: str, plan: str, expiry_date: str)
                     "to_email": email,
                     "to_name": name,
                     "access_key": key,
-                    "plan": "Monthly ($20)" if plan == "monthly" else "Semester ($50)",
+                    "plan": PLAN_DISPLAY.get(plan, plan),
                     "expiry_date": expiry_date,
                     "download_url": DOWNLOAD_URL,
                 },
@@ -62,12 +69,17 @@ def send_key_email(email: str, name: str, key: str, plan: str, expiry_date: str)
 
 
 def send_admin_order_notification(order: dict) -> bool:
-    """Send admin an email when a new order is placed."""
+    """Send admin an email when a new order is placed (Venmo orders only)."""
+    # Only send notifications for Venmo orders, not Stripe orders
+    if order.get("payment_method") == "stripe":
+        logger.info("Skipping admin notification for Stripe order")
+        return True
+
     if not all([EMAILJS_SERVICE_ID, EMAILJS_ADMIN_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, ADMIN_EMAIL]):
         logger.warning("Admin notification not configured, skipping")
         return False
 
-    plan_display = "Monthly ($20)" if order["plan"] == "monthly" else "Semester ($50)"
+    plan_display = PLAN_DISPLAY.get(order["plan"], order["plan"])
     try:
         resp = http_requests.post(
             EMAILJS_API_URL,

@@ -76,3 +76,39 @@ SPEED_PRESETS = {
     "Normal": (2.0, 5.0),
     "Fast": (1.0, 3.0),
 }
+
+# ── AI Model Tiers ────────────────────────────────────────────────
+
+# Model display names for the UI
+MODEL_DISPLAY_NAMES = {
+    "gpt-4o-mini": "GPT-4o Mini (Fast)",
+    "gpt-4o": "GPT-4o (Balanced)",
+    "claude-sonnet-4-5-20250929": "Claude Sonnet 4.5 (Best)",
+}
+
+# Plan-based model access control
+PLAN_MODEL_ACCESS = {
+    "weekly": ["gpt-4o-mini"],
+    "monthly": ["gpt-4o-mini", "gpt-4o"],
+    "semester": ["gpt-4o-mini", "gpt-4o", "claude-sonnet-4-5-20250929"],
+}
+
+
+def get_default_model_for_plan(plan: str) -> str:
+    """Get the default AI model for a given plan."""
+    plan_defaults = {
+        "weekly": "gpt-4o-mini",
+        "monthly": "gpt-4o",
+        "semester": "claude-sonnet-4-5-20250929",
+    }
+    return plan_defaults.get(plan, "gpt-4o-mini")
+
+
+def get_available_models_for_plan(plan: str) -> list[str]:
+    """Get list of models available for a given plan."""
+    return PLAN_MODEL_ACCESS.get(plan, ["gpt-4o-mini"])
+
+
+def is_model_allowed_for_plan(model: str, plan: str) -> bool:
+    """Check if a model is allowed for a given plan."""
+    return model in PLAN_MODEL_ACCESS.get(plan, [])

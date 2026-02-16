@@ -15,7 +15,7 @@ _use_db = bool(DATABASE_URL)
 KEYS_FILE = os.path.join(os.path.dirname(__file__), "keys.json")
 ORDERS_FILE = os.path.join(os.path.dirname(__file__), "orders.json")
 
-PLAN_DURATIONS = {"monthly": 30, "semester": 120}
+PLAN_DURATIONS = {"weekly": 7, "monthly": 30, "semester": 120}
 
 
 # ── Connection ────────────────────────────────────────────────────
@@ -273,22 +273,30 @@ def generate_key_with_expiry(label: str, plan: str) -> tuple[str, dict]:
 
 # ── Order Operations ──────────────────────────────────────────────
 
-def create_order(order: dict) -> None:
+def create_order(order: dict) -> str:
+    """Create a new order. Returns the order ID."""
+    if not order.get("id"):
+        order["id"] = "order_" + secrets.token_hex(6)
+
     if _use_db:
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO orders (id, name, email, venmo_username, transaction_id, plan, status, created, referral) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (order["id"], order["name"], order["email"], order["venmo_username"],
-             order["transaction_id"], order["plan"], order["status"],
-             _parse_iso(order["created"]), order.get("referral", "")))
+            "INSERT INTO orders (id, name, email, venmo_username, transaction_id, plan, status, created, referral, payment_method, stripe_session_id) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (order["id"], order["name"], order["email"], order.get("venmo_username", ""),
+             order.get("transaction_id", ""), order["plan"], order.get("status", "pending"),
+             _parse_iso(order.get("created")) or datetime.utcnow(),
+             order.get("referral", ""), order.get("payment_method", "venmo"),
+             order.get("stripe_session_id")))
         cur.close()
         conn.close()
     else:
         orders_data = _load_orders_json()
         orders_data["orders"].append(order)
         _save_orders_json(orders_data)
+
+    return order["id"]
 
 
 def list_orders(status_filter: str | None = None) -> list[dict]:
@@ -298,20 +306,23 @@ def list_orders(status_filter: str | None = None) -> list[dict]:
         if status_filter:
             cur.execute(
                 "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
-                "created, approved_at, key, referral FROM orders WHERE status = %s ORDER BY created DESC",
+                "created, approved_at, key, referral, payment_method, stripe_session_id "
+                "FROM orders WHERE status = %s ORDER BY created DESC",
                 (status_filter,))
         else:
             cur.execute(
                 "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
-                "created, approved_at, key, referral FROM orders ORDER BY created DESC")
+                "created, approved_at, key, referral, payment_method, stripe_session_id "
+                "FROM orders ORDER BY created DESC")
         rows = cur.fetchall()
         cur.close()
         conn.close()
         return [{
-            "id": r[0], "name": r[1], "email": r[2], "venmo_username": r[3],
-            "transaction_id": r[4], "plan": r[5], "status": r[6],
+            "id": r[0], "name": r[1], "email": r[2], "venmo_username": r[3] or "",
+            "transaction_id": r[4] or "", "plan": r[5], "status": r[6],
             "created": _to_iso(r[7]), "approved_at": _to_iso(r[8]), "key": r[9],
-            "referral": r[10] if len(r) > 10 else "",
+            "referral": r[10] or "", "payment_method": r[11] if len(r) > 11 else "venmo",
+            "stripe_session_id": r[12] if len(r) > 12 else None,
         } for r in rows]
     else:
         orders_data = _load_orders_json()
@@ -327,17 +338,19 @@ def find_order(order_id: str) -> dict | None:
         cur = conn.cursor()
         cur.execute(
             "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
-            "created, approved_at, key, referral FROM orders WHERE id = %s", (order_id,))
+            "created, approved_at, key, referral, payment_method, stripe_session_id "
+            "FROM orders WHERE id = %s", (order_id,))
         row = cur.fetchone()
         cur.close()
         conn.close()
         if not row:
             return None
         return {
-            "id": row[0], "name": row[1], "email": row[2], "venmo_username": row[3],
-            "transaction_id": row[4], "plan": row[5], "status": row[6],
+            "id": row[0], "name": row[1], "email": row[2], "venmo_username": row[3] or "",
+            "transaction_id": row[4] or "", "plan": row[5], "status": row[6],
             "created": _to_iso(row[7]), "approved_at": _to_iso(row[8]), "key": row[9],
-            "referral": row[10] if len(row) > 10 else "",
+            "referral": row[10] or "", "payment_method": row[11] if len(row) > 11 else "venmo",
+            "stripe_session_id": row[12] if len(row) > 12 else None,
         }
     else:
         orders_data = _load_orders_json()
@@ -365,3 +378,235 @@ def update_order(order_id: str, status: str, key: str | None = None,
                     o["approved_at"] = _to_iso(approved_at)
                 break
         _save_orders_json(orders_data)
+
+
+# ── Stripe Helper Functions ───────────────────────────────────────
+
+def find_order_by_stripe_session(session_id: str) -> dict | None:
+    """Find order by Stripe session ID."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id, name, email, venmo_username, transaction_id, plan, status, "
+            "created, approved_at, key, referral, payment_method, stripe_session_id "
+            "FROM orders WHERE stripe_session_id = %s", (session_id,))
+        row = cur.fetchone()
+        cur.close()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "id": row[0], "name": row[1], "email": row[2], "venmo_username": row[3],
+            "transaction_id": row[4], "plan": row[5], "status": row[6],
+            "created": _to_iso(row[7]), "approved_at": _to_iso(row[8]), "key": row[9],
+            "referral": row[10], "payment_method": row[11], "stripe_session_id": row[12],
+        }
+    else:
+        orders_data = _load_orders_json()
+        return next((o for o in orders_data["orders"]
+                     if o.get("stripe_session_id") == session_id), None)
+
+
+def update_order_stripe_session(order_id: str, stripe_session_id: str) -> None:
+    """Update order with Stripe session ID."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE orders SET stripe_session_id = %s WHERE id = %s",
+            (stripe_session_id, order_id))
+        cur.close()
+        conn.close()
+    else:
+        orders_data = _load_orders_json()
+        for o in orders_data["orders"]:
+            if o["id"] == order_id:
+                o["stripe_session_id"] = stripe_session_id
+                break
+        _save_orders_json(orders_data)
+
+
+def update_order_status(order_id: str, status: str, key: str | None = None) -> None:
+    """Update order status and optionally set the key."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        if key:
+            cur.execute(
+                "UPDATE orders SET status = %s, key = %s, approved_at = %s WHERE id = %s",
+                (status, key, datetime.utcnow(), order_id))
+        else:
+            cur.execute(
+                "UPDATE orders SET status = %s WHERE id = %s",
+                (status, order_id))
+        cur.close()
+        conn.close()
+    else:
+        orders_data = _load_orders_json()
+        for o in orders_data["orders"]:
+            if o["id"] == order_id:
+                o["status"] = status
+                if key:
+                    o["key"] = key
+                    o["approved_at"] = _to_iso(datetime.utcnow())
+                break
+        _save_orders_json(orders_data)
+
+
+def update_key_preference(access_key: str, preferred_model: str) -> None:
+    """Save user's preferred AI model."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE keys SET preferred_model = %s WHERE key = %s",
+            (preferred_model, access_key))
+        cur.close()
+        conn.close()
+    else:
+        keys_data = _load_keys_json()
+        for k in keys_data.get("keys", []):
+            if k["key"] == access_key:
+                k["preferred_model"] = preferred_model
+                break
+        _save_keys_json(keys_data)
+
+
+def add_to_email_retry_queue(order_id: str, email_type: str,
+                             recipient: str, template_params: dict) -> None:
+    """Add failed email to retry queue."""
+    if _use_db:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO email_retry_queue (order_id, email_type, recipient, template_params, created)
+               VALUES (%s, %s, %s, %s, NOW())""",
+            (order_id, email_type, recipient, json.dumps(template_params)))
+        cur.close()
+        conn.close()
+    else:
+        logger.warning("Email retry queue only supported with database")
+
+
+# ── Session Management Functions ──────────────────────────────────
+
+def create_session(access_key: str, session_id: str) -> dict | None:
+    """
+    Create a new session for the given key.
+    Returns previous session if one existed, None otherwise.
+    """
+    if not _use_db:
+        logger.warning("Session management only supported with database")
+        return None
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # Check for existing active session
+    cur.execute(
+        "SELECT session_id, started_at FROM active_sessions WHERE access_key = %s",
+        (access_key,)
+    )
+    existing = cur.fetchone()
+    previous_session = None
+    if existing:
+        previous_session = {
+            "session_id": existing[0],
+            "started_at": _to_iso(existing[1])
+        }
+        # Delete the old session
+        cur.execute("DELETE FROM active_sessions WHERE access_key = %s", (access_key,))
+
+    # Create new session
+    cur.execute(
+        """INSERT INTO active_sessions (access_key, session_id, started_at, last_heartbeat)
+           VALUES (%s, %s, NOW(), NOW())""",
+        (access_key, session_id)
+    )
+
+    cur.close()
+    conn.close()
+    logger.info(f"Session created: {session_id[:8]}... for key {access_key[:8]}...")
+    return previous_session
+
+
+def update_session_heartbeat(session_id: str) -> bool:
+    """Update the last heartbeat timestamp for a session. Returns True if session exists."""
+    if not _use_db:
+        return True  # No-op in JSON mode
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE active_sessions SET last_heartbeat = NOW() WHERE session_id = %s",
+        (session_id,)
+    )
+    updated = cur.rowcount > 0
+    cur.close()
+    conn.close()
+    return updated
+
+
+def end_session(session_id: str) -> bool:
+    """End a session. Returns True if session was found and deleted."""
+    if not _use_db:
+        return True  # No-op in JSON mode
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM active_sessions WHERE session_id = %s", (session_id,))
+    deleted = cur.rowcount > 0
+    cur.close()
+    conn.close()
+    if deleted:
+        logger.info(f"Session ended: {session_id[:8]}...")
+    return deleted
+
+
+def cleanup_stale_sessions(timeout_seconds: int = 60) -> int:
+    """
+    Clean up sessions that haven't sent a heartbeat in timeout_seconds.
+    Returns number of sessions deleted.
+    """
+    if not _use_db:
+        return 0
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        """DELETE FROM active_sessions
+           WHERE last_heartbeat < NOW() - INTERVAL '%s seconds'""",
+        (timeout_seconds,)
+    )
+    deleted = cur.rowcount
+    cur.close()
+    conn.close()
+    if deleted > 0:
+        logger.info(f"Cleaned up {deleted} stale session(s)")
+    return deleted
+
+
+def get_active_session(access_key: str) -> dict | None:
+    """Get the active session for a given key, if any."""
+    if not _use_db:
+        return None
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT session_id, started_at, last_heartbeat FROM active_sessions WHERE access_key = %s",
+        (access_key,)
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "session_id": row[0],
+        "started_at": _to_iso(row[1]),
+        "last_heartbeat": _to_iso(row[2])
+    }
