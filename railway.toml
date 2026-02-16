@@ -1,0 +1,11 @@
+# Railway configuration for cron service
+# This file tells Railway how to build and deploy the cron service
+
+[build]
+builder = "nixpacks"
+buildCommand = "pip install -r server/requirements.txt"
+
+[deploy]
+startCommand = "python server/cron.py"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
