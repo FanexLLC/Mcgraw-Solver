@@ -371,8 +371,8 @@ def create_stripe_checkout():
                 "quantity": 1,
             }],
             mode="payment",
-            success_url=f"{FRONTEND_URL}/success?session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{FRONTEND_URL}/#pricing",
+            success_url=f"{FRONTEND_URL}?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{FRONTEND_URL}#pricing",
             metadata={
                 "order_id": order_id,
                 "plan": plan,
