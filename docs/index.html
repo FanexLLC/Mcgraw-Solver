@@ -93,18 +93,36 @@
       <p class="section-subtitle">Limited-time discounts for early users. Lock in your rate today.</p>
       <div class="pricing-grid">
         <div class="pricing-card">
-          <div class="discount-badge">20% OFF</div>
-          <h3>Monthly</h3>
-          <div class="price-original">$25</div>
-          <div class="price">$20</div>
-          <div class="price-period">per month</div>
+          <div class="discount-badge">Try It Out</div>
+          <h3>Weekly</h3>
+          <div class="price-original">$12</div>
+          <div class="price">$10</div>
+          <div class="price-period">per week</div>
           <ul class="pricing-features">
             <li>Full access to SmartBook Solver</li>
             <li>All question types supported</li>
-            <li>Speed &amp; accuracy controls</li>
-            <li>30 days of access</li>
+            <li>Customizable speed &amp; accuracy</li>
+            <li>GPT-4o-mini AI model</li>
+            <li>7 days of access</li>
+            <li>Perfect for trying the software</li>
           </ul>
-          <button class="btn btn-secondary" onclick="openCheckout('monthly', '$20/month')">Get Monthly</button>
+          <button class="btn btn-secondary" onclick="openCheckout('weekly')">Get Weekly</button>
+        </div>
+        <div class="pricing-card">
+          <div class="discount-badge">Popular</div>
+          <h3>Monthly</h3>
+          <div class="price-original">$30</div>
+          <div class="price">$25</div>
+          <div class="price-period">per month</div>
+          <ul class="pricing-features">
+            <li>Everything in Weekly</li>
+            <li>Save $15 vs weekly pricing</li>
+            <li><strong>GPT-4o &amp; GPT-4o-mini models</strong></li>
+            <li>30 days of access</li>
+            <li>Email support</li>
+            <li>Best for single-term courses</li>
+          </ul>
+          <button class="btn btn-secondary" onclick="openCheckout('monthly')">Get Monthly</button>
         </div>
         <div class="pricing-card popular">
           <div class="popular-badge">Best Value</div>
@@ -114,13 +132,68 @@
           <div class="price-period">per semester (~4 months)</div>
           <ul class="pricing-features">
             <li>Everything in Monthly</li>
-            <li>Save $30 vs monthly</li>
+            <li><strong>All AI models: Claude Sonnet 4.5, GPT-4o, GPT-4o-mini</strong></li>
+            <li><strong>Premium Claude Sonnet 4.5</strong> (most accurate)</li>
+            <li>Save $30 vs weekly, $25 vs monthly</li>
             <li>120 days of access</li>
-            <li>Priority support</li>
+            <li>Priority email support</li>
+            <li>Best for full semester coverage</li>
           </ul>
-          <button class="btn btn-primary" onclick="openCheckout('semester', '$50/semester')">Get Semester</button>
+          <button class="btn btn-primary" onclick="openCheckout('semester')">Get Semester</button>
         </div>
       </div>
+
+      <!-- AI Model Comparison -->
+      <div class="ai-model-comparison" style="margin-top: 48px;">
+        <h3 style="text-align: center; margin-bottom: 24px;">AI Model Comparison</h3>
+        <table style="width: 100%; max-width: 800px; margin: 0 auto; border-collapse: collapse;">
+          <thead>
+            <tr style="background: var(--bg-surface);">
+              <th style="padding: 12px; text-align: left; border: 1px solid var(--border);">Feature</th>
+              <th style="padding: 12px; text-align: center; border: 1px solid var(--border);">GPT-4o-mini<br/><small>(Weekly)</small></th>
+              <th style="padding: 12px; text-align: center; border: 1px solid var(--border);">GPT-4o<br/><small>(Monthly)</small></th>
+              <th style="padding: 12px; text-align: center; border: 1px solid var(--border);">Claude Sonnet 4.5<br/><small>(Semester)</small></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="padding: 12px; border: 1px solid var(--border);">Answer Accuracy</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Good</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Very Good</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Excellent</td>
+            </tr>
+            <tr>
+              <td style="padding: 12px; border: 1px solid var(--border);">Processing Speed</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Very Fast</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Fast</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Fast</td>
+            </tr>
+            <tr>
+              <td style="padding: 12px; border: 1px solid var(--border);">Complex Questions</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Good</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Very Good</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">Excellent</td>
+            </tr>
+            <tr>
+              <td style="padding: 12px; border: 1px solid var(--border);">Available Models</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">1 model</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">2 models (choose)</td>
+              <td style="padding: 12px; text-align: center; border: 1px solid var(--border);">All 3 models (choose)</td>
+            </tr>
+          </tbody>
+        </table>
+        <p style="text-align: center; color: var(--text-dim); margin-top: 16px; font-size: 0.9rem;">Performance ratings based on internal testing. Individual results may vary.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Refund Policy -->
+  <section id="refund-policy" style="background: var(--bg-surface); padding: 48px 0;">
+    <div class="container" style="max-width: 800px;">
+      <h2 class="section-title" style="font-size: 1.8rem;">Refund Policy</h2>
+      <p style="margin-bottom: 16px;"><strong>All sales are final.</strong> We do not offer refunds on any plan purchases. Please ensure you understand the product and features before purchasing.</p>
+      <p style="margin-bottom: 16px;">We recommend starting with the Weekly plan to try the software before committing to longer plans.</p>
+      <p>If you experience technical issues, please contact support for assistance.</p>
     </div>
   </section>
 
@@ -131,43 +204,92 @@
     </div>
   </footer>
 
+  <!-- Success Message Banner -->
+  <div id="success-message" class="success-banner" style="display: none; background: #10b981; color: white; padding: 24px; text-align: center; margin: 24px auto; max-width: 600px; border-radius: 8px;">
+    <h2 style="margin: 0 0 8px 0;">🎉 Payment Successful!</h2>
+    <p style="margin: 0;">Check your email for your access key and download link.</p>
+    <p style="margin: 8px 0 0 0; font-size: 0.9rem;">Didn't receive an email? Check your spam folder or contact support.</p>
+  </div>
+
   <!-- Checkout Modal -->
   <div class="modal-overlay" id="checkout-modal">
     <div class="modal">
       <button class="modal-close" onclick="closeCheckout()">&times;</button>
-      <h2>Complete Your Purchase</h2>
-      <p class="plan-summary" id="checkout-plan-label"></p>
+      <h2>Get Access - <span id="checkout-plan-name"></span></h2>
 
-      <div class="venmo-instructions">
-        <p><strong>Step 1:</strong> Send payment via Venmo to <strong>@RobbieP10</strong></p>
-        <p style="margin-top:8px; color: var(--text-dim);">Include your email in the Venmo note so we can match your payment.</p>
+      <!-- Payment method selector -->
+      <div class="payment-method-selector" style="display: flex; gap: 12px; margin-bottom: 24px;">
+        <label class="payment-option active" style="flex: 1; cursor: pointer; padding: 16px; border: 2px solid var(--accent-blue); border-radius: 8px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+          <input type="radio" name="payment-method" value="stripe" checked onchange="togglePaymentMethod()" style="margin: 0;">
+          <div style="flex: 1;">
+            <div><strong>💳 Credit/Debit Card</strong></div>
+            <small style="color: var(--accent-green); font-weight: 600;">Instant Access</small>
+          </div>
+        </label>
+        <label class="payment-option" style="flex: 1; cursor: pointer; padding: 16px; border: 2px solid var(--border); border-radius: 8px; display: flex; align-items: center; gap: 12px; transition: all 0.2s;">
+          <input type="radio" name="payment-method" value="venmo" onchange="togglePaymentMethod()" style="margin: 0;">
+          <div style="flex: 1;">
+            <div><strong>📱 Venmo</strong></div>
+            <small style="color: var(--text-dim);">Manual Approval</small>
+          </div>
+        </label>
       </div>
 
-      <form id="checkout-form" onsubmit="return submitOrder(event)">
-        <input type="hidden" id="checkout-plan" name="plan">
-        <div class="form-group">
-          <label for="checkout-name">Full Name</label>
-          <input type="text" id="checkout-name" required placeholder="John Doe">
+      <!-- Stripe payment fields (shown by default) -->
+      <div id="stripe-fields">
+        <form id="stripe-checkout-form" onsubmit="submitStripeOrder(event); return false;">
+          <div class="form-group">
+            <label for="stripe-name">Full Name</label>
+            <input type="text" id="stripe-name" required placeholder="John Doe">
+          </div>
+          <div class="form-group">
+            <label for="stripe-email">Email Address</label>
+            <input type="email" id="stripe-email" required placeholder="you@college.edu">
+          </div>
+          <div class="form-group">
+            <label for="stripe-referral">Referral Code (Optional)</label>
+            <input type="text" id="stripe-referral" placeholder="Friend's name or referral code">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%; padding: 14px; font-size: 1.1rem;">
+            Pay with Stripe →
+          </button>
+        </form>
+      </div>
+
+      <!-- Venmo payment fields (hidden by default) -->
+      <div id="venmo-fields" style="display: none;">
+        <div class="venmo-instructions" style="background: var(--bg-surface); padding: 16px; border-radius: 8px; margin-bottom: 16px;">
+          <p><strong>Step 1:</strong> Send <strong>$<span id="venmo-amount"></span></strong> to <strong>@RobbieP10</strong></p>
+          <p style="margin-top:8px; color: var(--text-dim); font-size: 0.9rem;">Include your email in the Venmo note so we can match your payment.</p>
         </div>
-        <div class="form-group">
-          <label for="checkout-email">Email Address</label>
-          <input type="email" id="checkout-email" required placeholder="you@college.edu">
-        </div>
-        <div class="form-group">
-          <label for="checkout-venmo">Your Venmo Username</label>
-          <input type="text" id="checkout-venmo" required placeholder="@your-venmo">
-        </div>
-        <div class="form-group">
-          <label for="checkout-txn">Venmo Transaction ID or Last 4 Digits</label>
-          <input type="text" id="checkout-txn" required placeholder="e.g. 3829471056 or 1056">
-        </div>
-        <div class="form-group">
-          <label for="checkout-referral">Referral (Optional)</label>
-          <input type="text" id="checkout-referral" placeholder="Friend's name or referral code">
-        </div>
-        <button type="submit" class="btn btn-primary" style="width:100%" id="checkout-submit">Submit Order</button>
-        <div class="form-message" id="checkout-message"></div>
-      </form>
+        <form id="venmo-checkout-form" onsubmit="submitVenmoOrder(event); return false;">
+          <input type="hidden" id="checkout-plan" name="plan">
+          <div class="form-group">
+            <label for="venmo-name">Full Name</label>
+            <input type="text" id="venmo-name" required placeholder="John Doe">
+          </div>
+          <div class="form-group">
+            <label for="venmo-email">Email Address</label>
+            <input type="email" id="venmo-email" required placeholder="you@college.edu">
+          </div>
+          <div class="form-group">
+            <label for="venmo-username">Your Venmo Username</label>
+            <input type="text" id="venmo-username" required placeholder="@your-venmo">
+          </div>
+          <div class="form-group">
+            <label for="venmo-transaction-id">Venmo Transaction ID or Last 4 Digits</label>
+            <input type="text" id="venmo-transaction-id" required placeholder="e.g. 3829471056 or 1056">
+          </div>
+          <div class="form-group">
+            <label for="venmo-referral">Referral Code (Optional)</label>
+            <input type="text" id="venmo-referral" placeholder="Friend's name or referral code">
+          </div>
+          <button type="submit" class="btn btn-primary" style="width:100%; padding: 14px; font-size: 1.1rem;">
+            Submit Venmo Order →
+          </button>
+          <div class="form-message" id="venmo-message"></div>
+        </form>
+      </div>
     </div>
   </div>
 

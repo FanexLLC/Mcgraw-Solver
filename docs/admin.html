@@ -28,23 +28,24 @@
   <div class="admin-dashboard container" id="admin-dashboard">
     <!-- Pending Orders -->
     <h2 class="section-title" style="text-align:left; font-size:1.5rem; margin-bottom:8px;">Pending Orders</h2>
-    <p style="color:var(--text-dim); margin-bottom:16px;">Verify Venmo payment before approving.</p>
+    <p style="color:var(--text-dim); margin-bottom:16px;">Verify payment before approving. Stripe orders should be auto-approved by webhook.</p>
     <div style="overflow-x:auto;">
       <table class="orders-table">
         <thead>
           <tr>
             <th>Name</th>
             <th>Email</th>
-            <th>Venmo</th>
-            <th>Transaction ID</th>
             <th>Plan</th>
+            <th>Payment Method</th>
+            <th>Venmo Username</th>
+            <th>Transaction ID</th>
             <th>Referral</th>
             <th>Date</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody id="pending-orders-body">
-          <tr><td colspan="8" style="text-align:center;color:var(--text-dim)">Loading...</td></tr>
+          <tr><td colspan="9" style="text-align:center;color:var(--text-dim)">Loading...</td></tr>
         </tbody>
       </table>
     </div>
@@ -60,6 +61,7 @@
               <th>Name</th>
               <th>Email</th>
               <th>Plan</th>
+              <th>Payment Method</th>
               <th>Status</th>
               <th>Key</th>
               <th>Referral</th>
@@ -73,8 +75,9 @@
       </div>
     </div>
 
-    <div style="margin-top:48px; text-align:center;">
+    <div style="margin-top:48px; text-align:center; display:flex; gap:12px; justify-content:center;">
       <button class="btn btn-secondary" onclick="loadOrders()">Refresh Orders</button>
+      <button class="btn btn-secondary" onclick="syncStripe()" id="sync-stripe-btn">Sync from Stripe</button>
     </div>
   </div>
 
