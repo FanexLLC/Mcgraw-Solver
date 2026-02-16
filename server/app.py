@@ -55,7 +55,7 @@ CLAUDE_MODELS = {"claude-sonnet-4-5-20250929", "claude-haiku-4-5-20251001",
 stripe.api_key = os.environ.get("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_MODE = os.environ.get("STRIPE_MODE", "test")
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://fanexllc.github.io")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "https://fanexllc.github.io/Mcgraw-Solver")
 
 # Map plans to Stripe Price IDs
 STRIPE_PRICES = {
@@ -134,16 +134,6 @@ def get_anthropic_client():
 
 
 # ── Auth ──────────────────────────────────────────────────────────
-
-def require_admin(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        password = request.headers.get("X-Admin-Password", "")
-        if not ADMIN_PASSWORD or password != ADMIN_PASSWORD:
-            return jsonify({"error": "Unauthorized"}), 401
-        return f(*args, **kwargs)
-    return decorated
-
 
 def notify_admin_error(error_type: str, details: str) -> None:
     """Send admin email for critical errors."""
@@ -662,6 +652,66 @@ def session_status():
 
 
 # ── Admin Endpoints ───────────────────────────────────────────────
+
+@app.route("/api/admin/login", methods=["POST"])
+def admin_login():
+    """Admin login endpoint that returns a JWT token."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No JSON body"}), 400
+
+    password = data.get("password", "")
+
+    if not ADMIN_PASSWORD or password != ADMIN_PASSWORD:
+        logger.warning("Failed admin login attempt")
+        return jsonify({"error": "Invalid password"}), 401
+
+    # Generate JWT token (valid for 24 hours)
+    if not JWT_SECRET:
+        logger.error("JWT_SECRET not configured")
+        return jsonify({"error": "Server configuration error"}), 500
+
+    token = jwt.encode(
+        {
+            "admin": True,
+            "exp": datetime.utcnow().timestamp() + 86400  # 24 hours
+        },
+        JWT_SECRET,
+        algorithm="HS256"
+    )
+
+    logger.info("Admin login successful")
+    return jsonify({"token": token})
+
+
+def require_admin(f):
+    """Decorator that checks for valid admin JWT token or X-Admin-Password header."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # Check for JWT token in Authorization header
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+            try:
+                if not JWT_SECRET:
+                    return jsonify({"error": "Server configuration error"}), 500
+
+                payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+                if payload.get("admin"):
+                    return f(*args, **kwargs)
+            except jwt.ExpiredSignatureError:
+                return jsonify({"error": "Token expired. Please log in again."}), 401
+            except jwt.InvalidTokenError:
+                return jsonify({"error": "Invalid token"}), 401
+
+        # Fallback to password header for backwards compatibility
+        password = request.headers.get("X-Admin-Password", "")
+        if ADMIN_PASSWORD and password == ADMIN_PASSWORD:
+            return f(*args, **kwargs)
+
+        return jsonify({"error": "Unauthorized"}), 401
+    return decorated
+
 
 @app.route("/api/admin/orders", methods=["GET"])
 @require_admin
