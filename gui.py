@@ -44,6 +44,10 @@ class SolverGUI:
         self.question_count = 0
         self.correct_count = 0
         self._validated_key = None
+        self._user_plan = None
+        self._allowed_models = []
+        self._preferred_model = None
+        self._model_names = {}
 
         self.root = tk.Tk()
         self.root.title("SmartBook Solver")
@@ -215,6 +219,11 @@ class SolverGUI:
                     return
                 if resp.status_code == 200 and data.get("valid"):
                     self._validated_key = key
+                    # Store plan and model information
+                    self._user_plan = data.get("plan", "monthly")
+                    self._allowed_models = data.get("allowed_models", ["gpt-4o-mini"])
+                    self._preferred_model = data.get("preferred_model", self._allowed_models[0])
+                    self._model_names = data.get("model_names", {})
                     self._save_access_key(key)
                     self.root.after(0, self._on_key_valid)
                 else:
@@ -297,25 +306,32 @@ class SolverGUI:
         # Hidden access key var (carries over from login)
         self.access_key_var = tk.StringVar(value=config.ACCESS_KEY)
 
-        # Model
-        self._model_map = {
-            "Claude Sonnet 4.5 (Best)": "claude-sonnet-4-5-20250929",
-            "Claude Haiku 4.5 (Fast)":  "claude-haiku-4-5-20251001",
-            "GPT-4o":                    "gpt-4o",
-            "GPT-4o Mini":               "gpt-4o-mini",
-        }
-        self._model_map_reverse = {v: k for k, v in self._model_map.items()}
-        default_display = self._model_map_reverse.get(config.GPT_MODEL, "Claude Sonnet 4.5 (Best)")
+        # Model selection - only show if user has multiple models
+        # Build allowed models list based on user's plan
+        if self._allowed_models and len(self._allowed_models) > 1:
+            self._setting_row(card, "AI Model")
 
-        self._setting_row(card, "Model")
-        self.model_var = tk.StringVar(value=default_display)
-        model_combo = ttk.Combobox(
-            card, textvariable=self.model_var,
-            values=list(self._model_map.keys()),
-            state="readonly", width=30, style="Dark.TCombobox",
-            font=(_FONT, 11),
-        )
-        model_combo.pack(padx=16, pady=(0, 10), anchor="w")
+            # Create display names from allowed models
+            model_display_options = [self._model_names.get(m, m) for m in self._allowed_models]
+            default_display = self._model_names.get(self._preferred_model, model_display_options[0])
+
+            self.model_var = tk.StringVar(value=default_display)
+            self.model_combo = ttk.Combobox(
+                card, textvariable=self.model_var,
+                values=model_display_options,
+                state="readonly", width=30, style="Dark.TCombobox",
+                font=(_FONT, 11),
+            )
+            self.model_combo.pack(padx=16, pady=(0, 10), anchor="w")
+            self.model_combo.bind("<<ComboboxSelected>>", self._on_model_changed)
+        elif self._allowed_models:
+            # Single model - just show which one
+            self._setting_row(card, "AI Model")
+            model_name = self._model_names.get(self._allowed_models[0], self._allowed_models[0])
+            tk.Label(
+                card, text=model_name,
+                font=(_FONT, 11), fg=_C["text"], bg=_C["bg_card"]
+            ).pack(padx=16, pady=(0, 10), anchor="w")
 
         # Speed + Accuracy row
         row = tk.Frame(card, bg=_C["bg_card"])
@@ -481,6 +497,47 @@ class SolverGUI:
     def _on_accuracy_change(self, *_args):
         self._acc_label.config(text=f"{self.accuracy_var.get()}%")
 
+    def _on_model_changed(self, event=None):
+        """Handle model selection change - save preference to server."""
+        if not hasattr(self, 'model_var') or not hasattr(self, '_validated_key'):
+            return
+
+        selected_display = self.model_var.get()
+
+        # Reverse lookup to get model ID from display name
+        model_id = None
+        for mid in self._allowed_models:
+            if self._model_names.get(mid, mid) == selected_display:
+                model_id = mid
+                break
+
+        if not model_id or model_id not in self._allowed_models:
+            return
+
+        # Save preference to server
+        def _save_preference():
+            try:
+                resp = requests.post(
+                    f"{config.SERVER_URL}/api/model/preference",
+                    json={
+                        "access_key": self._validated_key,
+                        "model": model_id
+                    },
+                    timeout=10
+                )
+
+                if resp.status_code == 200:
+                    self._preferred_model = model_id
+                    self.root.after(0, lambda: self.log(f"AI model changed to {selected_display}"))
+                else:
+                    error_data = resp.json()
+                    self.root.after(0, lambda: self.log(f"Failed to save model preference: {error_data.get('error', 'Unknown error')}"))
+
+            except Exception as e:
+                self.root.after(0, lambda: self.log(f"Error saving model preference: {e}"))
+
+        threading.Thread(target=_save_preference, daemon=True).start()
+
     def _save_access_key(self, key):
         env_path = os.path.join(config._get_app_dir(), ".env")
         lines = []
@@ -551,8 +608,20 @@ class SolverGUI:
     def get_settings(self):
         speed = self.speed_var.get()
         min_d, max_d = config.SPEED_PRESETS.get(speed, (2.0, 5.0))
-        display_name = self.model_var.get()
-        model_id = self._model_map.get(display_name, "gpt-4o")
+
+        # Get current model selection
+        if hasattr(self, 'model_var'):
+            # Reverse lookup from display name to model ID
+            display_name = self.model_var.get()
+            model_id = self._preferred_model  # Default to preferred
+            for mid in self._allowed_models:
+                if self._model_names.get(mid, mid) == display_name:
+                    model_id = mid
+                    break
+        else:
+            # Fallback if no model selector (shouldn't happen after login)
+            model_id = self._preferred_model if hasattr(self, '_preferred_model') else "gpt-4o-mini"
+
         return {
             "access_key": self.access_key_var.get(),
             "speed": speed,

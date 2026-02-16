@@ -3,6 +3,7 @@ import time
 import logging
 import sys
 from typing import Any
+from datetime import datetime
 
 import config
 import browser
@@ -28,6 +29,7 @@ class SolverApp:
         self.driver = None
         self.pause_flag = False
         self.stop_flag = False
+        self.session_start_time = None
         self.gui = SolverGUI(
             on_start=self.on_start,
             on_pause=self.on_pause,
@@ -50,8 +52,11 @@ class SolverApp:
             self.pause_flag = False
             self._apply_settings(settings)
 
+            # Capture session start time for grace period logic
+            self.session_start_time = datetime.utcnow().isoformat()
+
             try:
-                solver.init_client(settings["access_key"])
+                solver.init_client(settings["access_key"], self.session_start_time)
                 self.gui.log("Connected to server.")
             except (ConnectionError, ValueError) as e:
                 self.gui.log(f"ERROR: {e}")

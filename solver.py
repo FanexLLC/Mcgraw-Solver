@@ -12,13 +12,15 @@ logger = logging.getLogger(__name__)
 
 _access_key: str | None = None
 _server_url: str | None = None
+_session_start_time: str | None = None
 
 
-def init_client(access_key: str | None = None) -> None:
+def init_client(access_key: str | None = None, session_start_time: str | None = None) -> None:
     """Store the access key and verify the server is reachable."""
-    global _access_key, _server_url
+    global _access_key, _server_url, _session_start_time
     _access_key = access_key or config.ACCESS_KEY
     _server_url = config.SERVER_URL
+    _session_start_time = session_start_time
 
     if not _access_key:
         raise ValueError("Access key not set. Please enter your access key.")
@@ -45,6 +47,10 @@ def get_answer(question_data: QuestionData) -> Action:
         "model": config.GPT_MODEL,
         "temperature": config.GPT_TEMPERATURE,
     }
+
+    # Include session start time for grace period logic (if available)
+    if _session_start_time:
+        payload["session_start_time"] = _session_start_time
 
     resp = requests.post(f"{_server_url}/api/solve", json=payload, timeout=30)
 

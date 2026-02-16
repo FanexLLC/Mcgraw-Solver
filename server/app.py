@@ -7,7 +7,7 @@ import time
 import logging
 import secrets
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import Flask, request, jsonify
@@ -172,13 +172,44 @@ def solve():
         return jsonify({"error": "No JSON body"}), 400
 
     access_key = data.get("access_key", "")
+    session_start_time = data.get("session_start_time")
+
     key_entry = find_key(access_key)
     if not key_entry:
         return jsonify({"error": "Invalid access key"}), 403
 
-    expiry_error = _check_key_expiry(key_entry)
-    if expiry_error:
-        return jsonify({"error": expiry_error}), 403
+    # Grace period logic for active sessions
+    expires_val = key_entry.get("expires")
+    if expires_val:
+        if isinstance(expires_val, str):
+            expiry = datetime.fromisoformat(expires_val.rstrip("Z"))
+        else:
+            expiry = expires_val
+
+        now = datetime.utcnow()
+
+        # If session_start_time is provided, check for grace period
+        if session_start_time:
+            try:
+                session_start = datetime.fromisoformat(session_start_time.rstrip("Z"))
+
+                # Session started before expiry - allow 5-hour grace period
+                if session_start < expiry:
+                    grace_period_hours = 5
+                    grace_expiry = expiry + timedelta(hours=grace_period_hours)
+                    if now > grace_expiry:
+                        return jsonify({"error": "Grace period expired. Please purchase a new plan."}), 403
+                # Session started after expiry - no grace period
+                elif now > expiry:
+                    return jsonify({"error": "Access key expired. Please renew your subscription."}), 403
+            except (ValueError, AttributeError):
+                # Invalid session_start_time format - fall back to regular expiry check
+                if now > expiry:
+                    return jsonify({"error": "Access key expired. Please renew your subscription."}), 403
+        else:
+            # No session_start_time - regular expiry check
+            if now > expiry:
+                return jsonify({"error": "Access key expired. Please renew your subscription."}), 403
 
     # Rate limiting
     now = time.time()
@@ -262,8 +293,20 @@ def validate_key():
     if expiry_error:
         return jsonify({"valid": False, "error": expiry_error}), 403
 
-    logger.info(f"Key validated: {access_key[:8]}...")
-    return jsonify({"valid": True})
+    # Get user's plan and model access info
+    user_plan = key_entry.get("plan", "monthly")
+    allowed_models = PLAN_MODEL_ACCESS.get(user_plan, ["gpt-4o-mini"])
+    preferred_model = key_entry.get("preferred_model") or get_default_model_for_plan(user_plan)
+
+    logger.info(f"Key validated: {access_key[:8]}... | Plan: {user_plan}")
+    return jsonify({
+        "valid": True,
+        "plan": user_plan,
+        "allowed_models": allowed_models,
+        "preferred_model": preferred_model,
+        "expires": key_entry.get("expires"),
+        "model_names": MODEL_DISPLAY_NAMES
+    })
 
 
 @app.route("/health", methods=["GET"])
@@ -303,6 +346,7 @@ def create_order_endpoint():
         "transaction_id": transaction_id,
         "plan": plan,
         "status": "pending",
+        "payment_method": "venmo",
         "created": datetime.utcnow().isoformat() + "Z",
         "approved_at": None,
         "key": None,
@@ -811,75 +855,146 @@ def revoke_key_endpoint():
 @require_admin
 def sync_stripe_order():
     """
-    Manually sync a pending Stripe order by fetching session status.
+    Manually sync pending Stripe orders by fetching session status from Stripe.
+    If order_id is provided, syncs that specific order.
+    If no order_id (or empty JSON body), syncs ALL pending Stripe orders.
     Used when webhook fails to process.
     """
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No JSON body"}), 400
-
+        data = request.get_json() or {}
         order_id = data.get("order_id")
-        if not order_id:
-            return jsonify({"error": "order_id required"}), 400
 
-        order = find_order(order_id)
-        if not order:
-            return jsonify({"error": "Order not found"}), 404
+        # If specific order_id provided, sync that order only
+        if order_id:
+            order = find_order(order_id)
+            if not order:
+                return jsonify({"error": "Order not found"}), 404
 
-        if order.get("payment_method") != "stripe":
-            return jsonify({"error": "Not a Stripe order"}), 400
+            if order.get("payment_method") != "stripe":
+                return jsonify({"error": "Not a Stripe order"}), 400
 
-        stripe_session_id = order.get("stripe_session_id")
-        if not stripe_session_id:
-            return jsonify({"error": "No Stripe session ID"}), 400
+            stripe_session_id = order.get("stripe_session_id")
+            if not stripe_session_id:
+                return jsonify({"error": "No Stripe session ID"}), 400
 
-        # Fetch session from Stripe
-        session = stripe.checkout.Session.retrieve(stripe_session_id)
+            # Fetch session from Stripe
+            session = stripe.checkout.Session.retrieve(stripe_session_id)
 
-        # Check payment status
-        if session.payment_status == "paid" and order["status"] != "approved":
-            # Validate payment amount
-            plan = order["plan"]
-            expected_amount = PRICE_AMOUNTS.get(plan)
-            if not expected_amount or session.amount_total != expected_amount:
-                return jsonify({"error": "Payment amount mismatch"}), 400
+            # Check payment status
+            if session.payment_status == "paid" and order["status"] != "approved":
+                # Validate payment amount
+                plan = order["plan"]
+                expected_amount = PRICE_AMOUNTS.get(plan)
+                if not expected_amount or session.amount_total != expected_amount:
+                    return jsonify({"error": "Payment amount mismatch"}), 400
 
-            # Approve order
-            key, key_entry = generate_key_with_expiry(order["name"], plan)
-            update_order_status(order_id, "approved", key)
+                # Approve order
+                key, key_entry = generate_key_with_expiry(order["name"], plan)
+                update_order_status(order_id, "approved", key)
 
-            # Send key email
+                # Send key email
+                try:
+                    send_key_email(order["email"], order["name"], key, plan, key_entry["expires"])
+                except Exception as e:
+                    logger.error(f"Email failed during sync: {e}")
+                    # Add to retry queue
+                    add_to_email_retry_queue(
+                        order_id,
+                        "key_email",
+                        order["email"],
+                        {"key": key, "plan": plan, "name": order["name"], "expires": key_entry["expires"]}
+                    )
+
+                logger.info(f"Order {order_id} manually synced and approved")
+                return jsonify({
+                    "success": True,
+                    "message": "Order approved successfully",
+                    "key": key
+                })
+            elif session.payment_status == "paid":
+                return jsonify({
+                    "success": True,
+                    "message": "Order already approved",
+                    "status": order["status"]
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "message": f"Payment not completed: {session.payment_status}",
+                    "payment_status": session.payment_status
+                })
+
+        # No order_id provided - sync ALL pending Stripe orders
+        pending_orders = list_orders(status_filter="pending")
+        stripe_orders = [o for o in pending_orders if o.get("payment_method") == "stripe" and o.get("stripe_session_id")]
+
+        if not stripe_orders:
+            return jsonify({
+                "success": True,
+                "message": "No pending Stripe orders to sync",
+                "synced": 0,
+                "approved": 0
+            }), 200
+
+        synced_count = 0
+        approved_count = 0
+        already_approved = 0
+        errors = []
+
+        for order in stripe_orders:
             try:
-                send_key_email(order["email"], order["name"], key, plan, key_entry["expires"])
-            except Exception as e:
-                logger.error(f"Email failed during sync: {e}")
-                # Add to retry queue
-                add_to_email_retry_queue(
-                    order_id,
-                    "key_email",
-                    order["email"],
-                    {"key": key, "plan": plan, "name": order["name"], "expires": key_entry["expires"]}
-                )
+                # Fetch session from Stripe
+                session = stripe.checkout.Session.retrieve(order["stripe_session_id"])
 
-            logger.info(f"Order {order_id} manually synced and approved")
-            return jsonify({
-                "success": True,
-                "message": "Order approved successfully",
-                "key": key
-            })
-        elif session.payment_status == "paid":
-            return jsonify({
-                "success": True,
-                "message": "Order already approved",
-                "status": order["status"]
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": f"Payment not completed: {session.payment_status}",
-                "payment_status": session.payment_status
-            })
+                # Check payment status
+                if session.payment_status == "paid" and order["status"] != "approved":
+                    # Validate payment amount
+                    plan = order["plan"]
+                    expected_amount = PRICE_AMOUNTS.get(plan)
+                    if expected_amount and session.amount_total == expected_amount:
+                        # Approve order
+                        key, key_entry = generate_key_with_expiry(order["name"], plan)
+                        update_order_status(order["id"], "approved", key)
+
+                        # Send key email
+                        try:
+                            send_key_email(order["email"], order["name"], key, plan, key_entry["expires"])
+                        except Exception as e:
+                            logger.error(f"Email failed during bulk sync: {e}")
+                            add_to_email_retry_queue(
+                                order["id"],
+                                "key_email",
+                                order["email"],
+                                {"key": key, "plan": plan, "name": order["name"], "expires": key_entry["expires"]}
+                            )
+
+                        approved_count += 1
+                        logger.info(f"Bulk sync: Order {order['id']} approved")
+                    else:
+                        errors.append(f"{order['id']}: payment amount mismatch")
+                elif session.payment_status == "paid":
+                    already_approved += 1
+
+                synced_count += 1
+
+            except Exception as e:
+                logger.error(f"Failed to sync order {order['id']}: {e}")
+                errors.append(f"{order['id']}: {str(e)[:50]}")
+
+        message = f"Synced {synced_count} orders: {approved_count} approved"
+        if already_approved > 0:
+            message += f", {already_approved} already approved"
+        if errors:
+            message += f". {len(errors)} errors (see logs)"
+
+        logger.info(f"Bulk Stripe sync completed: {synced_count} synced, {approved_count} approved")
+        return jsonify({
+            "success": True,
+            "message": message,
+            "synced": synced_count,
+            "approved": approved_count,
+            "errors": errors[:5]  # Return first 5 errors
+        }), 200
 
     except stripe.error.StripeError as e:
         logger.error(f"Stripe API error: {e}")
