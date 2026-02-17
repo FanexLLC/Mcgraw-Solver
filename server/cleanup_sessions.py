@@ -34,7 +34,7 @@ def cleanup_stale_sessions():
         timeout_seconds = 60
         cur.execute(
             """DELETE FROM active_sessions
-               WHERE last_heartbeat < NOW() - INTERVAL '%s seconds'
+               WHERE last_heartbeat < NOW() - make_interval(secs => %s)
                RETURNING access_key, session_id""",
             (timeout_seconds,)
         )
