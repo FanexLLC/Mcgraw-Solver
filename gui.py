@@ -269,6 +269,15 @@ class SolverGUI:
                    selectbackground=[("readonly", _C["bg_input"])],
                    selectforeground=[("readonly", _C["text"])])
 
+        # Progress bar styling
+        style.configure("TProgressbar",
+                        troughcolor=_C["bg_input"],
+                        background=_C["cyan"],
+                        bordercolor=_C["border"],
+                        lightcolor=_C["cyan"],
+                        darkcolor=_C["cyan"],
+                        thickness=20)
+
         # ── Header ────────────────────────────────────────────────────
         header = tk.Frame(page, bg=_C["bg"])
         header.pack(fill="x", padx=24, pady=(20, 4))
@@ -412,6 +421,32 @@ class SolverGUI:
         self._stat_correct.pack(side="left", fill="x", expand=True, padx=(4, 4))
         self._stat_accuracy = self._stat_card(stats_frame, "Rate", "--")
         self._stat_accuracy.pack(side="left", fill="x", expand=True, padx=(4, 0))
+
+        # ── Progress section ──────────────────────────────────────────
+        progress_frame = tk.Frame(page, bg=_C["bg_card"],
+                                 highlightbackground=_C["border"], highlightthickness=1)
+        progress_frame.pack(fill="x", padx=24, pady=(14, 0))
+
+        # Progress label - generic messages only
+        self.progress_label = tk.Label(progress_frame, text="Ready",
+                                       fg=_C["text"], bg=_C["bg_card"],
+                                       font=(_FONT, 11))
+        self.progress_label.pack(pady=(10, 5))
+
+        # Progress bar
+        self.progress_var = tk.DoubleVar(value=0.0)
+        self.progress_bar = ttk.Progressbar(progress_frame, variable=self.progress_var,
+                                            maximum=100.0, mode='determinate',
+                                            length=400)
+        self.progress_bar.pack(pady=(5, 10), padx=20)
+
+        # Progress status
+        self.progress_status = tk.Label(progress_frame, text="",
+                                       fg=_C["text_dim"], bg=_C["bg_card"],
+                                       font=(_FONT, 9))
+        self.progress_status.pack(pady=(0, 10))
+
+        self._progress_active = False
 
         # ── Live log ──────────────────────────────────────────────────
         log_header = tk.Frame(page, bg=_C["bg"])
@@ -609,6 +644,47 @@ class SolverGUI:
         self.root.after(0, _update)
 
     # ==================================================================
+    # PROGRESS BAR UPDATES
+    # ==================================================================
+    def start_progress(self, message):
+        """Start a progress animation with generic message."""
+        def _update():
+            self.progress_label.config(text=message)
+            self.progress_status.config(text="⏳ Working...")
+            self.progress_var.set(0)
+            self._progress_active = True
+        self.root.after(0, _update)
+
+    def update_progress(self, percent):
+        """Update progress bar percentage (0-100)."""
+        def _update():
+            if hasattr(self, '_progress_active') and self._progress_active:
+                self.progress_var.set(min(100, max(0, percent)))
+        self.root.after(0, _update)
+
+    def complete_progress(self):
+        """Mark progress as complete."""
+        def _update():
+            self.progress_var.set(100)
+            self.progress_status.config(text="✓ Complete")
+            self._progress_active = False
+
+            # Reset after 1 second
+            self.root.after(1000, lambda: self.progress_label.config(text="Ready"))
+            self.root.after(1000, lambda: self.progress_status.config(text=""))
+            self.root.after(1000, lambda: self.progress_var.set(0))
+        self.root.after(0, _update)
+
+    def clear_progress(self):
+        """Clear progress bar and reset to ready state."""
+        def _update():
+            self.progress_var.set(0)
+            self.progress_label.config(text="Ready")
+            self.progress_status.config(text="")
+            self._progress_active = False
+        self.root.after(0, _update)
+
+    # ==================================================================
     # SETTINGS GETTER
     # ==================================================================
     def get_settings(self):
@@ -693,6 +769,7 @@ class SolverGUI:
         self.start_btn.config(state="normal", bg=_C["green"], fg=_C["bg"])
         self.pause_btn.config(state="disabled", text="Pause", bg=_C["yellow"], fg=_C["bg"])
         self.stop_btn.config(state="disabled")
+        self.clear_progress()
         self.log("Stopped.", "warn")
         if self.on_stop:
             self.on_stop()

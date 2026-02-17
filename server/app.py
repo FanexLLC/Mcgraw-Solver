@@ -847,6 +847,24 @@ def revoke_key_endpoint():
     return jsonify({"success": True})
 
 
+@app.route("/api/admin/cleanup-sessions", methods=["POST"])
+@require_admin
+def manual_cleanup_sessions():
+    """Manually trigger session cleanup (for testing)."""
+    try:
+        from db import cleanup_stale_sessions
+        deleted = cleanup_stale_sessions(timeout_seconds=60)
+        logger.info(f"Manual cleanup: {deleted} sessions deleted")
+        return jsonify({
+            "success": True,
+            "deleted": deleted,
+            "message": f"Cleaned up {deleted} stale session(s)"
+        }), 200
+    except Exception as e:
+        logger.error(f"Manual cleanup failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/admin/sync-stripe", methods=["POST"])
 @require_admin
 def sync_stripe_order():

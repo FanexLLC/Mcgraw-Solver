@@ -2,6 +2,9 @@ from __future__ import annotations
 import time
 import logging
 import sys
+import uuid
+import threading
+import requests
 from typing import Any
 from datetime import datetime
 
@@ -30,6 +33,8 @@ class SolverApp:
         self.pause_flag = False
         self.stop_flag = False
         self.session_start_time = None
+        self.session_id = None
+        self.heartbeat_thread = None
         self.gui = SolverGUI(
             on_start=self.on_start,
             on_pause=self.on_pause,
@@ -63,6 +68,37 @@ class SolverApp:
                 self.gui.root.after(0, self.gui._on_stop)
                 return
 
+            # Start session
+            try:
+                self.session_id = str(uuid.uuid4())
+                response = requests.post(
+                    f"{config.SERVER_URL}/api/session/start",
+                    json={
+                        "access_key": settings["access_key"],
+                        "session_id": self.session_id
+                    },
+                    timeout=10
+                )
+
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get("previous_session_terminated"):
+                        self.gui.log("⚠️ Previous session on another device was disconnected")
+
+                    # Start heartbeat thread
+                    self._start_heartbeat()
+                    self.gui.log("Session started successfully.")
+                else:
+                    error_msg = response.json().get("error", "Failed to start session")
+                    self.gui.log(f"ERROR: {error_msg}")
+                    self.gui.root.after(0, self.gui._on_stop)
+                    return
+            except Exception as e:
+                logger.error(f"Session start error: {e}")
+                self.gui.log(f"ERROR starting session: {e}")
+                self.gui.root.after(0, self.gui._on_stop)
+                return
+
             try:
                 self.gui.log("Connecting to Chrome (make sure you clicked Launch Chrome first)...")
                 self.driver = browser.connect_to_browser()
@@ -88,6 +124,46 @@ class SolverApp:
     def on_stop(self) -> None:
         self.stop_flag = True
         self.driver = None
+
+        # End session
+        if self.session_id:
+            try:
+                requests.post(
+                    f"{config.SERVER_URL}/api/session/end",
+                    json={"session_id": self.session_id},
+                    timeout=5
+                )
+                logger.info(f"Session ended: {self.session_id[:8]}...")
+            except Exception as e:
+                logger.error(f"Failed to end session: {e}")
+
+            self.session_id = None
+
+    # ── Session Management ────────────────────────────────────────
+
+    def _start_heartbeat(self) -> None:
+        """Start a background thread that sends heartbeat every 30 seconds."""
+        def heartbeat_loop():
+            while not self.stop_flag and self.session_id:
+                try:
+                    requests.post(
+                        f"{config.SERVER_URL}/api/session/heartbeat",
+                        json={"session_id": self.session_id},
+                        timeout=5
+                    )
+                    logger.debug(f"Heartbeat sent for session {self.session_id[:8]}...")
+                except Exception as e:
+                    logger.error(f"Heartbeat failed: {e}")
+
+                # Wait 30 seconds before next heartbeat
+                for _ in range(30):
+                    if self.stop_flag or not self.session_id:
+                        break
+                    time.sleep(1)
+
+        self.heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+        self.heartbeat_thread.start()
+        logger.info("Heartbeat thread started")
 
     # ── Main Loop ─────────────────────────────────────────────────
 
@@ -129,7 +205,13 @@ class SolverApp:
                     self.gui.log("Reading screen detected, clicking Next...")
                     human.random_delay(1.0, 3.0)
                     parser.click_next_button(self.driver)
-                    human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+                    # Show progress only for the main delay between screens
+                    human.random_delay(
+                        config.MIN_DELAY, config.MAX_DELAY,
+                        progress_callback=lambda msg, pct: self._update_gui_progress(msg, pct)
+                    )
+                    if self.gui:
+                        self.gui.complete_progress()
                     consecutive_unknown = 0
                     continue
 
@@ -158,6 +240,20 @@ class SolverApp:
         self.driver = None
         self.gui.root.after(0, self.gui._on_stop)
 
+    # ── Progress Updates ──────────────────────────────────────────
+
+    def _update_gui_progress(self, message: str, percent: float = None) -> None:
+        """Thread-safe GUI progress update."""
+        if self.gui:
+            if percent is None:
+                self.gui.start_progress(message)
+            else:
+                # Update both message and progress
+                if percent == 0:
+                    self.gui.start_progress(message)
+                else:
+                    self.gui.update_progress(percent)
+
     # ── Question Handling ─────────────────────────────────────────
 
     def _handle_question(self, question_num: int) -> bool:
@@ -174,6 +270,7 @@ class SolverApp:
         q_preview = question_data.question[:60]
         self.gui.log(f"Q{question_num}: {q_preview}...")
 
+        # Reading delay without progress bar (just log it)
         human.reading_delay(question_data.question)
         human.random_scroll(self.driver)
 
@@ -206,8 +303,16 @@ class SolverApp:
         human.random_delay(1.0, 2.0)
         parser.click_next_question(self.driver)
 
-        delay = human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+        delay = human.random_delay(
+            config.MIN_DELAY,
+            config.MAX_DELAY,
+            progress_callback=lambda msg, pct: self._update_gui_progress(msg, pct)
+        )
         self.gui.log(f"  Waiting {delay:.1f}s...")
+
+        # Mark question complete
+        if self.gui:
+            self.gui.complete_progress()
 
         return not was_miss
 
@@ -233,7 +338,13 @@ class SolverApp:
         human.random_delay(1.0, 2.0)
         self.gui.log("Clicking Next Question...")
         parser.click_next_question(self.driver)
-        human.random_delay(config.MIN_DELAY, config.MAX_DELAY)
+        # Show progress only for the main delay
+        human.random_delay(
+            config.MIN_DELAY, config.MAX_DELAY,
+            progress_callback=lambda msg, pct: self._update_gui_progress(msg, pct)
+        )
+        if self.gui:
+            self.gui.complete_progress()
 
     # ── Entry Point ───────────────────────────────────────────────
 

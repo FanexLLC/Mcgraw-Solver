@@ -1,22 +1,44 @@
 import time
 import random
+import logging
 from selenium.webdriver.common.action_chains import ActionChains
 import config
 
+logger = logging.getLogger(__name__)
 
-def random_delay(min_s=None, max_s=None):
-    """Sleep for a random duration between min and max seconds."""
+
+def random_delay(min_s=None, max_s=None, progress_callback=None):
+    """
+    Sleep for a random duration between min and max seconds.
+    Optionally calls progress_callback(message, percent) with progress updates.
+    """
     if min_s is None:
         min_s = config.MIN_DELAY
     if max_s is None:
         max_s = config.MAX_DELAY
     delay = random.uniform(min_s, max_s)
-    time.sleep(delay)
+
+    logger.info(f"[delay] waiting {delay:.1f}s")
+
+    # Simulate progress over delay period with visual feedback
+    if progress_callback:
+        progress_callback("Preparing next question...", 0)
+        steps = max(10, int(delay * 10))  # Update 10 times per second, minimum 10 steps
+        for i in range(steps):
+            time.sleep(delay / steps)
+            percent = ((i + 1) / steps) * 100
+            progress_callback("Preparing next question...", percent)
+    else:
+        time.sleep(delay)
+
     return delay
 
 
-def reading_delay(text):
-    """Simulate reading time based on word count."""
+def reading_delay(text, progress_callback=None):
+    """
+    Simulate reading time based on word count.
+    Optionally calls progress_callback(message, percent) with progress updates.
+    """
     words = len(text.split())
     wpm = config.READING_WPM + random.randint(-config.READING_WPM_VARIANCE, config.READING_WPM_VARIANCE)
     wpm = max(wpm, 100)  # floor at 100 WPM
@@ -25,7 +47,20 @@ def reading_delay(text):
     delay *= random.uniform(0.8, 1.2)
     # Minimum 1 second, maximum 15 seconds
     delay = max(1.0, min(delay, 15.0))
-    time.sleep(delay)
+
+    logger.info(f"[reading] {words} words, {delay:.1f}s at {wpm:.0f} wpm")
+
+    # Simulate progress over delay period with visual feedback
+    if progress_callback:
+        progress_callback("Processing question...", 0)
+        steps = max(10, int(delay * 10))  # Update 10 times per second, minimum 10 steps
+        for i in range(steps):
+            time.sleep(delay / steps)
+            percent = ((i + 1) / steps) * 100
+            progress_callback("Processing question...", percent)
+    else:
+        time.sleep(delay)
+
     return delay
 
 
