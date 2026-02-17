@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 def detect_page_type(driver: WebDriver) -> str:
     """Detect what type of page is currently showing.
 
-    Returns one of: "loading", "complete", "recharge", "reading", "question", "unknown".
+    Returns one of: "loading", "complete", "recharge", "reading", "content", "question", "unknown".
     """
     if not browser.is_page_ready(driver):
         return "loading"
@@ -57,6 +57,10 @@ def detect_page_type(driver: WebDriver) -> str:
     if _has_element(driver, SELECTORS["nav_bar"]):
         if _has_element(driver, SELECTORS["reading_button"]):
             return "reading"
+
+    # Check for intermediate content pages (video/intro pages with Continue button)
+    if _is_content_page(driver):
+        return "content"
 
     # Try switching into iframes as a last resort
     if _try_switch_to_question_frame(driver):
@@ -217,6 +221,49 @@ def click_next_question(driver: WebDriver) -> bool:
     return False
 
 
+def click_continue_button(driver: WebDriver) -> bool:
+    """Click the Continue button on intermediate content pages."""
+    # Try to find and click Continue button (check buttons, links, and clickable divs)
+    elements = browser.find_elements_safe(driver, "button, a, div[role='button']")
+    for el in elements:
+        try:
+            text = el.text.strip().lower()
+            # Check for "continue" - could be "Continue", "Continue →", etc.
+            if "continue" in text and len(text) < 50:
+                if el.is_displayed() and el.is_enabled():
+                    human.random_delay(0.5, 1.5)
+                    browser.safe_click(driver, el)
+                    logger.info(f"Clicked Continue button: '{el.text.strip()}'")
+                    return True
+        except StaleElementReferenceException:
+            continue
+
+    # Fallback: try JavaScript click on any element with "continue" text
+    try:
+        result = driver.execute_script("""
+            var buttons = document.querySelectorAll('button, a, [role="button"]');
+            for (var i = 0; i < buttons.length; i++) {
+                var btn = buttons[i];
+                var text = btn.textContent.trim().toLowerCase();
+                if (text.includes('continue') && text.length < 50) {
+                    if (btn.offsetParent !== null) {  // Check if visible
+                        btn.click();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        """)
+        if result:
+            logger.info("Clicked Continue button via JavaScript fallback")
+            return True
+    except WebDriverException as e:
+        logger.debug(f"JavaScript Continue click failed: {e}")
+
+    logger.warning("Could not find 'Continue' button")
+    return False
+
+
 def needs_resource_review(driver: WebDriver) -> bool:
     """Check if the current page requires reviewing a concept resource."""
     return _is_recharge_page(driver)
@@ -313,6 +360,47 @@ def _is_recharge_page(driver: WebDriver) -> bool:
         except StaleElementReferenceException:
             continue
     return False
+
+
+def _is_content_page(driver: WebDriver) -> bool:
+    """Check if this is an intermediate content page (video/intro) with a Continue button.
+
+    These pages appear between questions and contain content like videos or key terms.
+    They don't have question elements but have a Continue button to proceed.
+    """
+    # Look for Continue button (check both regular buttons and links)
+    elements = browser.find_elements_safe(driver, "button, a, div[role='button']")
+    has_continue = False
+    for el in elements:
+        try:
+            text = el.text.strip().lower()
+            # Check for "continue" text (exact match or with extra text like "Continue →")
+            if "continue" in text and el.is_displayed() and el.is_enabled():
+                # Make sure it's a prominent button (not nested in small text)
+                if len(text) < 50:  # Avoid matching long paragraphs
+                    has_continue = True
+                    logger.debug(f"Found potential Continue button: '{el.text.strip()}'")
+                    break
+        except StaleElementReferenceException:
+            continue
+
+    if not has_continue:
+        return False
+
+    # Make sure it's NOT a question page (no question elements)
+    has_question_elements = (
+        _has_element(driver, SELECTORS["responses_container"]) or
+        _has_element(driver, SELECTORS["question_fieldset"]) or
+        _has_element(driver, "input[type='radio']") or
+        _has_element(driver, "input[type='checkbox']") or
+        _has_element(driver, SELECTORS["text_input"])
+    )
+
+    # This is a content page if it has Continue but no question elements
+    is_content = has_continue and not has_question_elements
+    if is_content:
+        logger.info("Detected intermediate content page with Continue button")
+    return is_content
 
 
 def _try_switch_to_question_frame(driver: WebDriver) -> bool:

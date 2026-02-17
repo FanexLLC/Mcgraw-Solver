@@ -215,6 +215,20 @@ class SolverApp:
                     consecutive_unknown = 0
                     continue
 
+                if page_type == "content":
+                    self.gui.log("Intermediate content page detected, clicking Continue...")
+                    human.random_delay(1.0, 2.5)
+                    parser.click_continue_button(self.driver)
+                    # Show progress only for the main delay between screens
+                    human.random_delay(
+                        config.MIN_DELAY, config.MAX_DELAY,
+                        progress_callback=lambda msg, pct: self._update_gui_progress(msg, pct)
+                    )
+                    if self.gui:
+                        self.gui.complete_progress()
+                    consecutive_unknown = 0
+                    continue
+
                 if page_type == "unknown":
                     consecutive_unknown += 1
                     if consecutive_unknown > 10:

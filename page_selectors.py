@@ -60,4 +60,7 @@ SELECTORS: dict[str, str] = {
 
     # Next Question button (appears after answering)
     "next_question": "button.next-button, button.btn-primary.next-button",
+
+    # Continue button (intermediate content pages)
+    "continue_button": "button:contains('Continue'), button.btn-primary:contains('Continue')",
 }
