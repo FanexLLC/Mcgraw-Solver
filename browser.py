@@ -24,9 +24,22 @@ def launch_chrome():
         kill_cmd = ["pkill", "-f", "Google Chrome"]
         data_dir = "/tmp/chrome-debug"
     elif system == "Windows":
-        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        import os
+        chrome_candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+        ]
+        chrome_path = next((p for p in chrome_candidates if os.path.exists(p)), None)
+        if chrome_path is None:
+            raise FileNotFoundError(
+                "Google Chrome not found. Please install Chrome and try again.\n"
+                "Download from: https://www.google.com/chrome"
+            )
         kill_cmd = ["taskkill", "/F", "/IM", "chrome.exe"]
-        data_dir = r"C:\temp\chrome-debug"
+        data_dir = os.path.expandvars(r"%TEMP%\chrome-debug")
     else:
         chrome_path = "google-chrome"
         kill_cmd = ["pkill", "-f", "chrome"]
