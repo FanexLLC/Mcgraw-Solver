@@ -308,13 +308,7 @@ class SolverApp:
         human.random_delay(0.5, 1.5)
         parser.submit_with_confidence(self.driver)
 
-        human.random_delay(1.5, 2.5)
-        if parser.needs_resource_review(self.driver):
-            self.gui.log("  Resource review required — reading concept...")
-            parser.handle_recharge_page(self.driver)
-            human.random_delay(1.0, 2.0)
-
-        human.random_delay(1.0, 2.0)
+        human.random_delay(2.0, 3.5)
         parser.click_next_question(self.driver)
 
         delay = human.random_delay(
