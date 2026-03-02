@@ -272,13 +272,15 @@ def _execute_matching(action: Action, driver: WebDriver) -> None:
                 drop_idx = i
                 break
 
-        if drop_idx is None or drop_idx >= len(drop_zones):
-            logger.warning(f"Matching: no drop zone for '{match['source']}'")
-            continue
-
-        # Re-query choices (DOM changes after each drag)
+        # Re-query both choices AND drop zones (DOM changes after each drag)
         fresh_choices = browser.find_elements_safe(
             driver, ".matching-component .choices-container .choice-item-wrapper")
+        fresh_drop_zones = browser.find_elements_safe(
+            driver, ".matching-component .match-row .match-single-response-wrapper")
+
+        if drop_idx is None or drop_idx >= len(fresh_drop_zones):
+            logger.warning(f"Matching: no drop zone for '{match['source']}'")
+            continue
 
         choice_el = None
         for el in fresh_choices:
@@ -302,7 +304,7 @@ def _execute_matching(action: Action, driver: WebDriver) -> None:
             chain.pause(0.4)
             chain.move_by_offset(0, -10)
             chain.pause(0.2)
-            chain.move_to_element(drop_zones[drop_idx])
+            chain.move_to_element(fresh_drop_zones[drop_idx])
             chain.pause(0.3)
             chain.release()
             chain.perform()
