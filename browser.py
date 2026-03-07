@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
+import selenium.webdriver.chrome.webdriver  # noqa: F401 - required for PyInstaller
 import config
 import human
 
