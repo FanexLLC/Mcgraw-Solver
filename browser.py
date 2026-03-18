@@ -20,20 +20,16 @@ def launch_chrome():
     """Launch Chrome with remote debugging enabled. Works on Windows, macOS, and Linux."""
     system = platform.system()
 
+    import os
+
+    chrome_path = _find_chrome_binary()
+
     if system == "Darwin":
-        chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        if chrome_path is None:
+            chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         kill_cmd = ["pkill", "-f", "Google Chrome"]
         data_dir = "/tmp/chrome-debug"
     elif system == "Windows":
-        import os
-        chrome_candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
-            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
-        ]
-        chrome_path = next((p for p in chrome_candidates if os.path.exists(p)), None)
         if chrome_path is None:
             raise FileNotFoundError(
                 "Google Chrome not found. Please install Chrome and try again.\n"
@@ -42,7 +38,8 @@ def launch_chrome():
         kill_cmd = ["taskkill", "/F", "/IM", "chrome.exe"]
         data_dir = os.path.expandvars(r"%TEMP%\chrome-debug")
     else:
-        chrome_path = "google-chrome"
+        if chrome_path is None:
+            chrome_path = "google-chrome"
         kill_cmd = ["pkill", "-f", "chrome"]
         data_dir = "/tmp/chrome-debug"
 
@@ -70,6 +67,27 @@ def launch_chrome():
     logger.info("Chrome launched with debug port 9222")
 
 
+def _find_chrome_binary():
+    """Find the Google Chrome binary on the system."""
+    import os
+    system = platform.system()
+
+    if system == "Windows":
+        candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%PROGRAMFILES(X86)%\Google\Chrome\Application\chrome.exe"),
+        ]
+    elif system == "Darwin":
+        candidates = ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]
+    else:
+        candidates = ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable"]
+
+    return next((p for p in candidates if os.path.exists(p)), None)
+
+
 def connect_to_browser():
     """Connect to an already-running Chrome instance on debug port 9222."""
     import socket
@@ -89,6 +107,11 @@ def connect_to_browser():
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
+    # Explicitly point to Chrome so Selenium doesn't pick up Edge
+    chrome_binary = _find_chrome_binary()
+    if chrome_binary:
+        options.binary_location = chrome_binary
+
     # Defensive flags that help prevent ChromeDriver crashes on some Windows systems
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
@@ -98,7 +121,13 @@ def connect_to_browser():
         driver = webdriver.Chrome(options=options)
     except Exception as e:
         error_msg = str(e).lower()
-        if "chromedriver" in error_msg or "session not created" in error_msg:
+        if "edg" in error_msg or "edge" in error_msg:
+            logger.error(
+                "Selenium detected Microsoft Edge instead of Chrome.\n"
+                "Please make sure Google Chrome is installed.\n"
+                "Download from: https://www.google.com/chrome"
+            )
+        elif "chromedriver" in error_msg or "session not created" in error_msg:
             logger.error(
                 "ChromeDriver failed to start. This is usually a version mismatch.\n"
                 "Try: 1) Update Chrome  2) Delete ChromeDriver cache:\n"
