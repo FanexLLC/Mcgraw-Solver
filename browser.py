@@ -56,7 +56,14 @@ def launch_chrome():
 
     # Launch Chrome with debug port
     subprocess.Popen(
-        [chrome_path, f"--remote-debugging-port=9222", f"--user-data-dir={data_dir}"],
+        [
+            chrome_path,
+            f"--remote-debugging-port=9222",
+            f"--user-data-dir={data_dir}",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--disable-dev-shm-usage",
+        ],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -82,7 +89,23 @@ def connect_to_browser():
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
 
-    driver = webdriver.Chrome(options=options)
+    # Defensive flags that help prevent ChromeDriver crashes on some Windows systems
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-dev-shm-usage")
+
+    try:
+        driver = webdriver.Chrome(options=options)
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "chromedriver" in error_msg or "session not created" in error_msg:
+            logger.error(
+                "ChromeDriver failed to start. This is usually a version mismatch.\n"
+                "Try: 1) Update Chrome  2) Delete ChromeDriver cache:\n"
+                '   rmdir /s /q "%USERPROFILE%\\.cache\\selenium"\n'
+                "Then re-run the app."
+            )
+        raise
 
     # Switch to the SmartBook tab if we're on the wrong one
     switch_to_smartbook_tab(driver)
