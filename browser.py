@@ -9,6 +9,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service as ChromeService
 import selenium.webdriver.chrome.webdriver  # noqa: F401 - required for PyInstaller
 import config
 import human
@@ -36,6 +37,14 @@ def launch_chrome():
                 "Download from: https://www.google.com/chrome"
             )
         kill_cmd = ["taskkill", "/F", "/IM", "chrome.exe"]
+        # Also kill Edge so it doesn't hold port 9222
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/IM", "msedge.exe"],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
         data_dir = os.path.expandvars(r"%TEMP%\chrome-debug")
     else:
         if chrome_path is None:
@@ -88,6 +97,29 @@ def _find_chrome_binary():
     return next((p for p in candidates if os.path.exists(p)), None)
 
 
+def _verify_debug_port_is_chrome():
+    """Check that port 9222 is served by Chrome, not Edge or another browser."""
+    import json
+    import urllib.request
+    try:
+        resp = urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=5)
+        info = json.loads(resp.read())
+        browser = info.get("Browser", "")
+        user_agent = info.get("User-Agent", "")
+        logger.info(f"Debug port browser: {browser}")
+        if "Edg/" in browser or "Edg/" in user_agent:
+            raise ConnectionError(
+                "Microsoft Edge is running on debug port 9222 instead of Chrome.\n"
+                "Please close Edge completely, then click 'Launch Chrome' again."
+            )
+        return info
+    except (ConnectionError, json.JSONDecodeError):
+        raise
+    except Exception:
+        # Can't verify — proceed anyway
+        return None
+
+
 def connect_to_browser():
     """Connect to an already-running Chrome instance on debug port 9222."""
     import socket
@@ -103,6 +135,9 @@ def connect_to_browser():
             )
     finally:
         sock.close()
+
+    # Verify it's actually Chrome on the debug port, not Edge
+    _verify_debug_port_is_chrome()
 
     options = Options()
     options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
@@ -122,18 +157,19 @@ def connect_to_browser():
     except Exception as e:
         error_msg = str(e).lower()
         if "edg" in error_msg or "edge" in error_msg:
-            logger.error(
-                "Selenium detected Microsoft Edge instead of Chrome.\n"
-                "Please make sure Google Chrome is installed.\n"
-                "Download from: https://www.google.com/chrome"
-            )
+            raise ConnectionError(
+                "Microsoft Edge is interfering with ChromeDriver.\n"
+                "Please close Edge completely, then click 'Launch Chrome' again.\n"
+                "If the problem persists, delete the ChromeDriver cache:\n"
+                '   rmdir /s /q "%USERPROFILE%\\.cache\\selenium"'
+            ) from e
         elif "chromedriver" in error_msg or "session not created" in error_msg:
-            logger.error(
+            raise ConnectionError(
                 "ChromeDriver failed to start. This is usually a version mismatch.\n"
                 "Try: 1) Update Chrome  2) Delete ChromeDriver cache:\n"
                 '   rmdir /s /q "%USERPROFILE%\\.cache\\selenium"\n'
                 "Then re-run the app."
-            )
+            ) from e
         raise
 
     # Switch to the SmartBook tab if we're on the wrong one
