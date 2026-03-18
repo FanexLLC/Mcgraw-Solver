@@ -37,14 +37,16 @@ def launch_chrome():
                 "Download from: https://www.google.com/chrome"
             )
         kill_cmd = ["taskkill", "/F", "/IM", "chrome.exe"]
-        # Also kill Edge so it doesn't hold port 9222
-        try:
-            subprocess.run(
-                ["taskkill", "/F", "/IM", "msedge.exe"],
-                capture_output=True, timeout=5,
-            )
-        except Exception:
-            pass
+        # Kill Edge so it doesn't hold port 9222 — Edge auto-restarts,
+        # so also disable its startup boost via taskkill on all edge processes
+        for edge_proc in ["msedge.exe", "msedgewebview2.exe"]:
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", edge_proc],
+                    capture_output=True, timeout=5,
+                )
+            except Exception:
+                pass
         data_dir = os.path.expandvars(r"%TEMP%\chrome-debug")
     else:
         if chrome_path is None:
@@ -58,7 +60,18 @@ def launch_chrome():
     except Exception:
         pass
 
-    time.sleep(2)
+    # Wait for port 9222 to be free (Edge can take a moment to fully die)
+    import socket
+    for _ in range(10):
+        time.sleep(1)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if sock.connect_ex(("127.0.0.1", 9222)) != 0:
+                break  # Port is free
+        finally:
+            sock.close()
+    else:
+        logger.warning("Port 9222 still in use after waiting — another browser may be holding it")
 
     # Launch Chrome with debug port
     subprocess.Popen(
@@ -73,6 +86,17 @@ def launch_chrome():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    # Wait for Chrome to actually start listening on 9222
+    for _ in range(10):
+        time.sleep(1)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            if sock.connect_ex(("127.0.0.1", 9222)) == 0:
+                break  # Chrome is ready
+        finally:
+            sock.close()
+
     logger.info("Chrome launched with debug port 9222")
 
 
