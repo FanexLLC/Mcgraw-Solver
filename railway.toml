@@ -6,6 +6,5 @@ builder = "nixpacks"
 buildCommand = "pip install -r requirements.txt"
 
 [deploy]
-startCommand = "python cron.py"
 restartPolicyType = "always"
 restartPolicyMaxRetries = 10
