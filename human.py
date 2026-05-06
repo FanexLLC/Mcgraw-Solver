@@ -45,9 +45,7 @@ def reading_delay(text, progress_callback=None):
     delay = (words / wpm) * 60
     # Add slight random variance
     delay *= random.uniform(0.8, 1.2)
-    # Scale by speed multiplier, then cap to absolute bounds
-    delay *= config.SPEED_MULTIPLIER
-    delay = max(0.2, min(delay, 15.0))
+    delay = max(1.0, min(delay, 15.0))
 
     logger.info(f"[reading] {words} words, {delay:.1f}s at {wpm:.0f} wpm")
 
@@ -70,19 +68,18 @@ def human_type(element, text, driver):
     actions = ActionChains(driver)
     actions.click(element)
     actions.perform()
-    m = config.SPEED_MULTIPLIER
-    time.sleep(random.uniform(0.2 * m, 0.5 * m))
+    time.sleep(random.uniform(0.2, 0.5))
 
     # Try send_keys first
     try:
         element.clear()
-        time.sleep(random.uniform(0.1 * m, 0.3 * m))
+        time.sleep(random.uniform(0.1, 0.3))
 
         for i, char in enumerate(text):
             element.send_keys(char)
-            time.sleep(random.uniform(config.TYPE_MIN_DELAY * m, config.TYPE_MAX_DELAY * m))
+            time.sleep(random.uniform(config.TYPE_MIN_DELAY, config.TYPE_MAX_DELAY))
             if i > 0 and i % random.randint(5, 10) == 0:
-                time.sleep(random.uniform(0.3 * m, 0.6 * m))
+                time.sleep(random.uniform(0.3, 0.6))
     except Exception:
         pass
 
@@ -113,8 +110,7 @@ def human_click(element, driver):
     actions.move_to_element_with_offset(element, x_offset, y_offset)
     actions.perform()
     # Pause between hover and click
-    m = config.SPEED_MULTIPLIER
-    time.sleep(random.uniform(config.CLICK_HOVER_MIN * m, config.CLICK_HOVER_MAX * m))
+    time.sleep(random.uniform(config.CLICK_HOVER_MIN, config.CLICK_HOVER_MAX))
     # Click
     actions = ActionChains(driver)
     actions.click()
@@ -148,7 +144,7 @@ def random_scroll(driver):
         if scroll_amount == 0:
             scroll_amount = 50
         driver.execute_script(f"window.scrollBy(0, {scroll_amount})")
-        time.sleep(random.uniform(0.3 * config.SPEED_MULTIPLIER, 0.8 * config.SPEED_MULTIPLIER))
+        time.sleep(random.uniform(0.3, 0.8))
 
 
 def should_miss():
