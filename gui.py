@@ -334,7 +334,7 @@ class SolverGUI:
         speed_btn_frame.pack(anchor="w")
         self.speed_var = tk.StringVar(value="Normal")
         self._speed_buttons = {}
-        for speed in ["Slow", "Normal", "Fast"]:
+        for speed in ["Slow", "Normal", "Fast", "Turbo"]:
             btn = tk.Button(
                 speed_btn_frame, text=speed, width=6,
                 font=(_FONT, 10), relief="flat", cursor="hand2",

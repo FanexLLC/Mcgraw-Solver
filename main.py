@@ -48,6 +48,7 @@ class SolverApp:
         config.MAX_DELAY = settings["max_delay"]
         config.TARGET_ACCURACY = settings["accuracy"]
         config.GPT_MODEL = settings["model"]
+        config.SPEED_MULTIPLIER = settings["min_delay"] / 2.0  # Normal baseline is 2.0
 
     # ── Callbacks ─────────────────────────────────────────────────
 
