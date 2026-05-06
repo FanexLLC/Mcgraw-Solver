@@ -90,6 +90,7 @@ jobs:
 
       - name: Sign the app
         if: env.MACOS_CERTIFICATE != ''
+        continue-on-error: true
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         run: |
@@ -106,6 +107,7 @@ jobs:
 
       - name: Sign DMG
         if: env.MACOS_CERTIFICATE != ''
+        continue-on-error: true
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
         run: |
@@ -114,6 +116,7 @@ jobs:
 
       - name: Notarize DMG
         if: env.APPLE_ID != ''
+        continue-on-error: true
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -134,6 +137,7 @@ jobs:
 
   release:
     needs: [build-windows, build-macos]
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Download Windows build
