@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 
 # App version - bump this before each new release
-APP_VERSION = "1.1.11"
+APP_VERSION = "1.1.12"
 
 # GitHub repo for update checks
 GITHUB_REPO = "FanexLLC/Mcgraw-Solver"
