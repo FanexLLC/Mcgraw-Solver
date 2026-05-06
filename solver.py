@@ -108,8 +108,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
             f"source when answering:\n\n{qd.context}\n\n"
         )
 
-    step = "Write ONLY" if fast else "Think step-by-step, then on the LAST line write ONLY"
-
     if qd.type == "ordering":
         items_text = "\n".join(f"- {item}" for item in qd.items)
         return (
@@ -140,43 +138,77 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
     if qd.type == "mc_single":
         choices_text = "\n".join(f"{c['label']}) {c['text']}" for c in qd.choices)
         labels = ", ".join(c["label"] for c in qd.choices)
+        if fast:
+            return (
+                f"{ctx}"
+                f"Question: {qd.question}\n\n"
+                f"{choices_text}\n\n"
+                f"Respond with ONLY this line: ANSWER: [letter]\n"
+                f"where [letter] is one of {labels}."
+            )
         return (
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"{choices_text}\n\n"
-            f"{step}:\n"
+            f"Think step-by-step, then on the LAST line write ONLY:\n"
             f"ANSWER: <letter>\n"
             f"where <letter> is one of {labels}."
         )
 
     if qd.type == "mc_multi":
         choices_text = "\n".join(f"{c['label']}) {c['text']}" for c in qd.choices)
+        if fast:
+            return (
+                f"{ctx}"
+                f"Question: {qd.question}\n\n"
+                f"{choices_text}\n\n"
+                f"Select ALL correct options. Respond with ONLY this line: ANSWER: [letters]\n"
+                f"Example: ANSWER: A, C"
+            )
         return (
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"{choices_text}\n\n"
-            f"Select ALL correct options. {step}:\n"
+            f"Select ALL correct options. Think step-by-step, then on the LAST "
+            f"line write ONLY:\n"
             f"ANSWER: <letters separated by commas>\n"
             f"Example: ANSWER: A, C"
         )
 
     if qd.type == "fill":
         if qd.blank_count > 1:
+            if fast:
+                return (
+                    f"{ctx}"
+                    f"Question: {qd.question}\n\n"
+                    f"Fill in the {qd.blank_count} blanks. Respond with ONLY this line: "
+                    f"ANSWER: answer1; answer2; answer3\n"
+                    f"Use exact terminology from the passage."
+                )
             return (
                 f"{ctx}"
                 f"Question: {qd.question}\n\n"
                 f"This question has exactly {qd.blank_count} blanks to fill in. "
                 f"Each blank may require one or more words.\n\n"
-                f"{step}:\n"
+                f"Think step-by-step using the textbook passage above, then on "
+                f"the LAST line write ONLY:\n"
                 f"ANSWER: answer1; answer2; answer3\n"
                 f"Separate each blank's answer with a semicolon. Use the exact "
                 f"terminology from the textbook passage when possible."
+            )
+        if fast:
+            return (
+                f"{ctx}"
+                f"Question: {qd.question}\n\n"
+                f"Fill in the blank. Respond with ONLY this line: ANSWER: [answer]\n"
+                f"Use exact terminology from the passage."
             )
         return (
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"Fill in the blank. The answer may be one or more words.\n\n"
-            f"{step}:\n"
+            f"Think step-by-step using the textbook passage above, then on "
+            f"the LAST line write ONLY:\n"
             f"ANSWER: <your answer>\n"
             f"Use the exact terminology from the textbook passage when possible."
         )
@@ -186,20 +218,33 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
         for i, c in enumerate(qd.choices):
             opts = ", ".join(c.get("options", []))
             dropdown_info += f"Blank {i+1} options: {opts}\n"
+        if fast:
+            return (
+                f"{ctx}"
+                f"Sentence: {qd.question}\n\n"
+                f"{dropdown_info}\n"
+                f"Respond with ONLY this line: ANSWER: 1: chosen_option; 2: chosen_option"
+            )
         return (
             f"{ctx}"
             f"Sentence: {qd.question}\n\n"
             f"{dropdown_info}\n"
             f"Fill in each blank with the correct option from the choices given. "
-            f"{step}:\n"
+            f"Think step-by-step, then on the LAST line write ONLY:\n"
             f"ANSWER: 1: chosen_option; 2: chosen_option"
         )
 
     # Fallback
+    if fast:
+        return (
+            f"{ctx}"
+            f"Question: {qd.question}\n\n"
+            f"Respond with ONLY this line: ANSWER: [answer]"
+        )
     return (
         f"{ctx}"
         f"Question: {qd.question}\n\n"
-        f"{step}:\n"
+        f"Think step-by-step, then on the LAST line write ONLY:\n"
         f"ANSWER: <your answer>"
     )
 
