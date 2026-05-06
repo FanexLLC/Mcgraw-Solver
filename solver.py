@@ -39,13 +39,15 @@ def get_answer(question_data: QuestionData) -> Action:
     if _access_key is None:
         init_client()
 
-    prompt = _build_prompt(question_data)
+    turbo = config.TURBO_MODE
+    prompt = _build_prompt(question_data, fast=turbo)
 
     payload = {
         "access_key": _access_key,
         "prompt": prompt,
         "model": config.GPT_MODEL,
         "temperature": config.GPT_TEMPERATURE,
+        "max_tokens": _max_tokens_for_type(question_data.type, turbo),
     }
 
     # Include session start time for grace period logic (if available)
@@ -73,7 +75,31 @@ def get_answer(question_data: QuestionData) -> Action:
 
 # ── Prompt Building ───────────────────────────────────────────────
 
-def _build_prompt(qd: QuestionData) -> str:
+_TURBO_MAX_TOKENS = {
+    "mc_single": 20,
+    "mc_multi":  30,
+    "fill":      150,
+    "dropdown":  100,
+    "ordering":  300,
+    "matching":  300,
+}
+
+_NORMAL_MAX_TOKENS = {
+    "mc_single": 512,
+    "mc_multi":  512,
+    "fill":      512,
+    "dropdown":  512,
+    "ordering":  1024,
+    "matching":  1024,
+}
+
+
+def _max_tokens_for_type(qtype: str, turbo: bool) -> int:
+    table = _TURBO_MAX_TOKENS if turbo else _NORMAL_MAX_TOKENS
+    return table.get(qtype, 512)
+
+
+def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
     """Build the prompt based on question type."""
     ctx = ""
     if qd.context:
@@ -81,6 +107,8 @@ def _build_prompt(qd: QuestionData) -> str:
             f"The following passage is from the textbook. Use it as your PRIMARY "
             f"source when answering:\n\n{qd.context}\n\n"
         )
+
+    step = "Write ONLY" if fast else "Think step-by-step, then on the LAST line write ONLY"
 
     if qd.type == "ordering":
         items_text = "\n".join(f"- {item}" for item in qd.items)
@@ -116,7 +144,7 @@ def _build_prompt(qd: QuestionData) -> str:
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"{choices_text}\n\n"
-            f"Think step-by-step, then on the LAST line write ONLY:\n"
+            f"{step}:\n"
             f"ANSWER: <letter>\n"
             f"where <letter> is one of {labels}."
         )
@@ -127,8 +155,7 @@ def _build_prompt(qd: QuestionData) -> str:
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"{choices_text}\n\n"
-            f"Select ALL correct options. Think step-by-step, then on the LAST "
-            f"line write ONLY:\n"
+            f"Select ALL correct options. {step}:\n"
             f"ANSWER: <letters separated by commas>\n"
             f"Example: ANSWER: A, C"
         )
@@ -140,8 +167,7 @@ def _build_prompt(qd: QuestionData) -> str:
                 f"Question: {qd.question}\n\n"
                 f"This question has exactly {qd.blank_count} blanks to fill in. "
                 f"Each blank may require one or more words.\n\n"
-                f"Think step-by-step using the textbook passage above, then on "
-                f"the LAST line write ONLY:\n"
+                f"{step}:\n"
                 f"ANSWER: answer1; answer2; answer3\n"
                 f"Separate each blank's answer with a semicolon. Use the exact "
                 f"terminology from the textbook passage when possible."
@@ -150,8 +176,7 @@ def _build_prompt(qd: QuestionData) -> str:
             f"{ctx}"
             f"Question: {qd.question}\n\n"
             f"Fill in the blank. The answer may be one or more words.\n\n"
-            f"Think step-by-step using the textbook passage above, then on "
-            f"the LAST line write ONLY:\n"
+            f"{step}:\n"
             f"ANSWER: <your answer>\n"
             f"Use the exact terminology from the textbook passage when possible."
         )
@@ -166,7 +191,7 @@ def _build_prompt(qd: QuestionData) -> str:
             f"Sentence: {qd.question}\n\n"
             f"{dropdown_info}\n"
             f"Fill in each blank with the correct option from the choices given. "
-            f"Think step-by-step, then on the LAST line write ONLY:\n"
+            f"{step}:\n"
             f"ANSWER: 1: chosen_option; 2: chosen_option"
         )
 
@@ -174,7 +199,7 @@ def _build_prompt(qd: QuestionData) -> str:
     return (
         f"{ctx}"
         f"Question: {qd.question}\n\n"
-        f"Think step-by-step, then on the LAST line write ONLY:\n"
+        f"{step}:\n"
         f"ANSWER: <your answer>"
     )
 
