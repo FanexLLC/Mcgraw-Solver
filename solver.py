@@ -39,15 +39,13 @@ def get_answer(question_data: QuestionData) -> Action:
     if _access_key is None:
         init_client()
 
-    turbo = config.TURBO_MODE
-    prompt = _build_prompt(question_data, fast=turbo)
+    prompt = _build_prompt(question_data)
 
     payload = {
         "access_key": _access_key,
         "prompt": prompt,
         "model": config.GPT_MODEL,
         "temperature": config.GPT_TEMPERATURE,
-        "max_tokens": _max_tokens_for_type(question_data.type, turbo),
     }
 
     # Include session start time for grace period logic (if available)
@@ -75,31 +73,7 @@ def get_answer(question_data: QuestionData) -> Action:
 
 # ── Prompt Building ───────────────────────────────────────────────
 
-_TURBO_MAX_TOKENS = {
-    "mc_single": 20,
-    "mc_multi":  30,
-    "fill":      150,
-    "dropdown":  100,
-    "ordering":  300,
-    "matching":  300,
-}
-
-_NORMAL_MAX_TOKENS = {
-    "mc_single": 512,
-    "mc_multi":  512,
-    "fill":      512,
-    "dropdown":  512,
-    "ordering":  1024,
-    "matching":  1024,
-}
-
-
-def _max_tokens_for_type(qtype: str, turbo: bool) -> int:
-    table = _TURBO_MAX_TOKENS if turbo else _NORMAL_MAX_TOKENS
-    return table.get(qtype, 512)
-
-
-def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
+def _build_prompt(qd: QuestionData) -> str:
     """Build the prompt based on question type."""
     ctx = ""
     if qd.context:
@@ -138,14 +112,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
     if qd.type == "mc_single":
         choices_text = "\n".join(f"{c['label']}) {c['text']}" for c in qd.choices)
         labels = ", ".join(c["label"] for c in qd.choices)
-        if fast:
-            return (
-                f"{ctx}"
-                f"Question: {qd.question}\n\n"
-                f"{choices_text}\n\n"
-                f"Respond with ONLY this line: ANSWER: [letter]\n"
-                f"where [letter] is one of {labels}."
-            )
         return (
             f"{ctx}"
             f"Question: {qd.question}\n\n"
@@ -157,14 +123,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
 
     if qd.type == "mc_multi":
         choices_text = "\n".join(f"{c['label']}) {c['text']}" for c in qd.choices)
-        if fast:
-            return (
-                f"{ctx}"
-                f"Question: {qd.question}\n\n"
-                f"{choices_text}\n\n"
-                f"Select ALL correct options. Respond with ONLY this line: ANSWER: [letters]\n"
-                f"Example: ANSWER: A, C"
-            )
         return (
             f"{ctx}"
             f"Question: {qd.question}\n\n"
@@ -177,14 +135,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
 
     if qd.type == "fill":
         if qd.blank_count > 1:
-            if fast:
-                return (
-                    f"{ctx}"
-                    f"Question: {qd.question}\n\n"
-                    f"Fill in the {qd.blank_count} blanks. Respond with ONLY this line: "
-                    f"ANSWER: answer1; answer2; answer3\n"
-                    f"Use exact terminology from the passage."
-                )
             return (
                 f"{ctx}"
                 f"Question: {qd.question}\n\n"
@@ -195,13 +145,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
                 f"ANSWER: answer1; answer2; answer3\n"
                 f"Separate each blank's answer with a semicolon. Use the exact "
                 f"terminology from the textbook passage when possible."
-            )
-        if fast:
-            return (
-                f"{ctx}"
-                f"Question: {qd.question}\n\n"
-                f"Fill in the blank. Respond with ONLY this line: ANSWER: [answer]\n"
-                f"Use exact terminology from the passage."
             )
         return (
             f"{ctx}"
@@ -218,13 +161,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
         for i, c in enumerate(qd.choices):
             opts = ", ".join(c.get("options", []))
             dropdown_info += f"Blank {i+1} options: {opts}\n"
-        if fast:
-            return (
-                f"{ctx}"
-                f"Sentence: {qd.question}\n\n"
-                f"{dropdown_info}\n"
-                f"Respond with ONLY this line: ANSWER: 1: chosen_option; 2: chosen_option"
-            )
         return (
             f"{ctx}"
             f"Sentence: {qd.question}\n\n"
@@ -235,12 +171,6 @@ def _build_prompt(qd: QuestionData, fast: bool = False) -> str:
         )
 
     # Fallback
-    if fast:
-        return (
-            f"{ctx}"
-            f"Question: {qd.question}\n\n"
-            f"Respond with ONLY this line: ANSWER: [answer]"
-        )
     return (
         f"{ctx}"
         f"Question: {qd.question}\n\n"

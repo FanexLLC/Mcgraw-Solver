@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 
 # App version - bump this before each new release
-APP_VERSION = "1.1.12"
+APP_VERSION = "1.1.13"
 
 # GitHub repo for update checks
 GITHUB_REPO = "FanexLLC/Mcgraw-Solver"
@@ -47,11 +47,6 @@ GPT_TEMPERATURE = 0.0
 # Timing (seconds) - human-like delays
 MIN_DELAY = 2.0
 MAX_DELAY = 5.0
-# Set by _apply_settings() — ratio of selected preset's min_delay vs Normal (2.0)
-# Slow=2.0, Normal=1.0, Fast=0.5, Turbo=0.15
-SPEED_MULTIPLIER = 1.0
-# When True: strip chain-of-thought from prompts and cap output tokens per question type
-TURBO_MODE = False
 READING_WPM = 250
 READING_WPM_VARIANCE = 50
 TYPE_MIN_DELAY = 0.05
@@ -80,7 +75,6 @@ SPEED_PRESETS = {
     "Slow": (4.0, 8.0),
     "Normal": (2.0, 5.0),
     "Fast": (1.0, 3.0),
-    "Turbo": (0.3, 1.0),
 }
 
 # ── AI Model Tiers ────────────────────────────────────────────────

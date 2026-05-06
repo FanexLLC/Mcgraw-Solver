@@ -251,30 +251,46 @@ def _execute_ordering(action: Action, driver: WebDriver) -> None:
 
 # ── Matching ──────────────────────────────────────────────────────────
 
+def _find_choice_element(driver: WebDriver, choice_text: str):
+    """Re-query the choices pool and find an unplaced element matching choice_text."""
+    fresh_choices = browser.find_elements_safe(
+        driver, ".matching-component .choices-container .choice-item-wrapper")
+    for el in fresh_choices:
+        try:
+            text = el.find_element(By.CSS_SELECTOR, ".content p").text.strip().lower()
+            if choice_text == text or choice_text in text or text in choice_text:
+                return el
+        except (StaleElementReferenceException, NoSuchElementException):
+            continue
+    return None
+
+
 def _execute_matching(action: Action, driver: WebDriver) -> None:
     """Drag choice items to drop zones using Selenium ActionChains."""
     matches = action.matches
-    drop_zones = action.source_elements
     labels = action.sources
 
-    if not matches or not drop_zones:
-        logger.warning("Matching: no matches or drop zones")
+    if not matches or not labels:
+        logger.warning("Matching: no matches or labels")
         return
 
     for match in matches:
         label_text = match["source"].lower().strip()
         choice_text = match["target"].lower().strip()
 
-        # Find drop zone
+        # Find drop zone index — exact match first, then substring fallback
         drop_idx = None
         for i, label in enumerate(labels):
-            if label_text in label.lower() or label.lower() in label_text:
+            if label_text == label.lower().strip():
                 drop_idx = i
                 break
+        if drop_idx is None:
+            for i, label in enumerate(labels):
+                if label_text in label.lower() or label.lower() in label_text:
+                    drop_idx = i
+                    break
 
-        # Re-query both choices AND drop zones (DOM changes after each drag)
-        fresh_choices = browser.find_elements_safe(
-            driver, ".matching-component .choices-container .choice-item-wrapper")
+        # Re-query drop zones fresh (DOM changes after each drag)
         fresh_drop_zones = browser.find_elements_safe(
             driver, ".matching-component .match-row .match-single-response-wrapper")
 
@@ -282,36 +298,48 @@ def _execute_matching(action: Action, driver: WebDriver) -> None:
             logger.warning(f"Matching: no drop zone for '{match['source']}'")
             continue
 
-        choice_el = None
-        for el in fresh_choices:
-            try:
-                text = el.find_element(By.CSS_SELECTOR, ".content p").text.strip().lower()
-                if choice_text in text or text in choice_text:
-                    choice_el = el
-                    break
-            except (StaleElementReferenceException, NoSuchElementException):
-                continue
-
+        # Find choice in pool — skip if already placed (prevents doubling)
+        choice_el = _find_choice_element(driver, choice_text)
         if not choice_el:
-            logger.warning(f"Matching: no choice element for '{match['target']}'")
+            logger.info(f"Matching: '{match['target']}' not in pool (already placed?), skipping")
             continue
 
-        try:
+        # Re-fetch drop zones after finding choice element (DOM can shift)
+        fresh_drop_zones = browser.find_elements_safe(
+            driver, ".matching-component .match-row .match-single-response-wrapper")
+        if drop_idx >= len(fresh_drop_zones):
+            logger.warning(f"Matching: drop zone {drop_idx} out of range after re-query")
+            continue
+
+        def _do_drag(src_el, dst_el):
             chain = ActionChains(driver)
-            chain.move_to_element(choice_el)
-            chain.pause(0.2)
-            chain.click_and_hold(choice_el)
-            chain.pause(0.4)
+            chain.move_to_element(src_el)
+            chain.pause(0.3)
+            chain.click_and_hold(src_el)
+            chain.pause(0.5)
             chain.move_by_offset(0, -10)
             chain.pause(0.2)
-            chain.move_to_element(fresh_drop_zones[drop_idx])
-            chain.pause(0.3)
+            chain.move_to_element(dst_el)
+            chain.pause(0.4)
             chain.release()
             chain.perform()
 
-            human.random_delay(0.5, 1.2)
+        try:
+            _do_drag(choice_el, fresh_drop_zones[drop_idx])
+            human.random_delay(0.6, 1.4)
             logger.info(f"Matching: dragged '{match['target']}' -> '{match['source']}'")
         except (StaleElementReferenceException, NoSuchElementException) as e:
-            logger.warning(f"Matching: drag failed for '{match['source']}': {e}")
+            logger.warning(f"Matching: drag failed for '{match['source']}', retrying: {e}")
+            human.random_delay(0.5, 1.0)
+            choice_el = _find_choice_element(driver, choice_text)
+            fresh_drop_zones = browser.find_elements_safe(
+                driver, ".matching-component .match-row .match-single-response-wrapper")
+            if choice_el and drop_idx < len(fresh_drop_zones):
+                try:
+                    _do_drag(choice_el, fresh_drop_zones[drop_idx])
+                    human.random_delay(0.6, 1.2)
+                    logger.info(f"Matching: retry succeeded for '{match['source']}'")
+                except Exception as e2:
+                    logger.warning(f"Matching: retry failed for '{match['source']}': {e2}")
 
     logger.info(f"Matching: completed {len(matches)} matches")
