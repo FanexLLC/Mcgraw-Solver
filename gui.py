@@ -342,8 +342,9 @@ class SolverGUI:
                 activebackground="#5aacca", activeforeground=_C["bg"],
                 command=lambda s=speed: self._set_speed(s),
             )
-            btn.pack(side="left", padx=(0, 4))
             self._speed_buttons[speed] = btn
+            if speed != "Turbo":
+                btn.pack(side="left", padx=(0, 4))
         self._set_speed("Normal")
 
         # Accuracy
@@ -432,6 +433,7 @@ class SolverGUI:
                                        fg=_C["text"], bg=_C["bg_card"],
                                        font=(_FONT, 11))
         self.progress_label.pack(pady=(10, 5))
+        self.progress_label.bind("<Button-3>", self._on_turbo_easter_egg)
 
         # Progress bar
         self.progress_var = tk.DoubleVar(value=0.0)
@@ -762,6 +764,16 @@ class SolverGUI:
             self.log("Resumed.", "success")
         if self.on_pause:
             self.on_pause(self.is_paused)
+
+    def _on_turbo_easter_egg(self, event=None):
+        if self.speed_var.get() == "Turbo":
+            self._set_speed("Normal")
+            self.progress_label.config(fg=_C["text"])
+            self.log("Turbo mode disabled.", "warn")
+        else:
+            self._set_speed("Turbo")
+            self.progress_label.config(fg=_C["cyan"])
+            self.log("⚡ TURBO MODE ACTIVATED", "accent")
 
     def _on_stop(self):
         self.is_running = False

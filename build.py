@@ -43,7 +43,7 @@ cmd = [
     "--onefile",
     "--windowed",
     "--name", "SmartBook Solver",
-    "--icon", "NONE",
+    "--icon", "Icon.ico",
 ]
 
 # Add all hidden imports
@@ -72,6 +72,10 @@ if os.path.exists(".env"):
 # Include launch_chrome.bat so it can be extracted if needed
 if os.path.exists("launch_chrome.bat"):
     cmd += ["--add-data", "launch_chrome.bat;."]
+
+# Include app icon
+if os.path.exists("Icon.png"):
+    cmd += ["--add-data", "Icon.png;."]
 
 cmd.append("main.py")
 
