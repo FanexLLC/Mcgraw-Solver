@@ -221,6 +221,7 @@ def solve():
     prompt = data.get("prompt", "")
     model = data.get("model")
     temperature = data.get("temperature", 0.0)
+    max_tokens = data.get("max_tokens", 1024)
 
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
@@ -247,7 +248,7 @@ def solve():
             ac = get_anthropic_client()
             response = ac.messages.create(
                 model=model,
-                max_tokens=1024,
+                max_tokens=max_tokens,
                 temperature=temperature,
                 system=system_msg,
                 messages=[{"role": "user", "content": prompt}],
@@ -257,6 +258,7 @@ def solve():
             oai = get_openai_client()
             response = oai.chat.completions.create(
                 model=model,
+                max_tokens=max_tokens,
                 temperature=temperature,
                 messages=[
                     {"role": "system", "content": system_msg},
